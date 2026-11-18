@@ -352,7 +352,8 @@ input[type="text"]::placeholder {
   margin-right: auto;
   padding: 2px;
   background: var(--seg-bg);
-  border-radius: var(--radius-xs);
+  /* A full pill, like the status pill beside it; thumb and buttons follow. */
+  border-radius: 999px;
   user-select: none;
   touch-action: none; /* let pointermove drive drag-to-switch on touch */
 }
@@ -368,7 +369,7 @@ input[type="text"]::placeholder {
   width: 0;
   opacity: 0;
   background: var(--seg-thumb);
-  border-radius: var(--radius-2xs);
+  border-radius: 999px;
   box-shadow: 0 1px 2px rgba(0,0,0,.12);
   transition: left .15s cubic-bezier(.3,.7,.4,1), width .15s, opacity .15s;
   pointer-events: none;
@@ -388,7 +389,7 @@ input[type="text"]::placeholder {
   white-space: nowrap;
   background: transparent;
   border: 0;
-  border-radius: var(--radius-2xs);
+  border-radius: 999px;
   color: var(--text-sec);
   font-family: var(--font);
   font-size: 11.5px;
@@ -408,14 +409,14 @@ input[type="text"]::placeholder {
   font-weight: 600;
 }
 
+.tab-icon { display: none; }
+
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
 
 /* ========== WHO AM I POPOVER ========== */
-/* One panel, one header. Identity and AI access used to be two cards stacked in
-   here, each with its own dark bar — two bars read as two unrelated things, so
-   the popover itself is now the card and the sections are separated by tone. */
+/* The session identity, and nothing else: AI access lives on the Skills tab. */
 .whoami-popover {
   background: var(--white);
   border: .5px solid var(--border);
@@ -452,17 +453,14 @@ input[type="text"]::placeholder {
   background: var(--btn-soft);
 }
 
-/* Identity strip — recessed against the white body so it reads as part of the
-   header block rather than as a second section competing with AI access. */
-/* With the header bar gone this strip is the top of the card, and it carries
-   the close button beside the identity that popup.js injects. */
+/* Identity strip — the whole popover now, so no rule beneath it. It carries the
+   close button beside the identity that popup.js injects. */
 .whoami-identity {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 10px 8px 12px;
   background: var(--paper);
-  border-bottom: 1px solid var(--border);
 }
 
 .whoami-identity-main {
@@ -535,88 +533,62 @@ input[type="text"]::placeholder {
   overflow-wrap: anywhere;
 }
 
-/* ========== AI ACCESS — lower half of the Who Am I panel ========== */
-/* The key itself never comes back to this page — background.js holds it. */
-.whoami-body {
+/* ========== SKILLS TAB — AI ACCESS ========== */
+/* The key itself never comes back to this page — background.js holds it.
+   Two faces on one card, switched by data-state: the set-up form (none,
+   checking, bad, replacing) and, once a key passes its check, one line naming
+   it (ok). Built from the shapes already here: the empty-state title and gold
+   load button, the search field, the identity strip. */
+.ai-card { display: flex; flex-direction: column; }
+
+.ai-card[data-state="ok"] .ai-setup,
+.ai-card:not([data-state="ok"]) .ai-connected { display: none; }
+
+.ai-setup {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 11px 12px 12px;
 }
 
-/* Quiet section label: a hairline carries the eye across instead of a second
-   dark bar. Slightly darker and wider-tracked than the field labels below it. */
-.whoami-section {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .16em;
-  text-transform: uppercase;
-  color: var(--text-sec);
-}
-
-.whoami-section::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-
-.ai-field { display: flex; flex-direction: column; gap: 6px; }
-
-.ai-field-label {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-.ai-tiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.ai-tile {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 11px;
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  color: var(--text-sec);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: .04em;
-  cursor: pointer;
-  transition: border-color .15s, background .15s, color .15s;
-}
-
-.ai-tile:hover { border-color: var(--accent); color: var(--text); }
-
-.ai-tile.active {
-  border-color: var(--accent);
-  background: var(--accent-light);
-  color: var(--accent-hover);
+.ai-title {
+  font-family: var(--display);
+  font-size: 16px;
   font-weight: 600;
+  line-height: 1.15;
+  color: var(--ink);
 }
 
-/* Key field — masked input with an inline reveal toggle. */
+.ai-lede {
+  max-width: 62ch;
+  margin: -6px 0 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-hint);
+  text-wrap: pretty;
+}
+
+.ai-privacy {
+  color: var(--accent-hover);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ai-privacy:hover { text-decoration: underline; }
+
+/* Provider · key · action: one line, like a search bar with its button. */
+.ai-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 560px;
+}
+
 .ai-key-field {
   display: flex;
   align-items: center;
-  height: 34px;
-  padding: 0 4px 0 9px;
+  flex: 1;
+  min-width: 0;
+  height: 30px;
   background: var(--field-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
@@ -624,11 +596,47 @@ input[type="text"]::placeholder {
 }
 
 .ai-key-field:focus-within { border-color: var(--accent); }
+.ai-card[data-state="bad"] .ai-key-field { border-color: var(--red); }
+
+/* The provider is a prefix of the field, split off by a hairline: three marks,
+   the chosen one inked on a soft pill (the tab switcher's shape), the others
+   faded until hovered. */
+.ai-provider {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 1px;
+  height: 100%;
+  padding: 0 5px 0 4px;
+  border-right: 1px solid var(--border);
+}
+
+.ai-prov {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.ai-prov svg { width: 14px; height: 14px; fill: currentColor; }
+.ai-prov:hover { color: var(--text-sec); }
+.ai-prov.active { background: var(--btn-soft); color: var(--ink); }
+.ai-prov:focus-visible { outline: 2px solid var(--accent-glow, rgba(192,138,46,.35)); outline-offset: 0; }
+.ai-prov:disabled { cursor: default; }
 
 #ai-key-input {
   flex: 1;
   min-width: 0;
   height: 100%;
+  padding: 0 10px;
   background: transparent;
   border: 0;
   color: var(--text);
@@ -641,6 +649,7 @@ input[type="text"]::placeholder {
 
 .ai-key-reveal {
   flex-shrink: 0;
+  margin-right: 4px;
   padding: 4px 6px;
   background: transparent;
   border: 0;
@@ -656,105 +665,129 @@ input[type="text"]::placeholder {
 
 .ai-key-reveal:hover { color: var(--text); background: var(--btn-soft); }
 
-.ai-actions { display: flex; align-items: center; gap: 6px; }
-
-.ai-btn {
-  height: 28px;
-  padding: 0 12px;
+/* Gold, like the other one-time set-up actions (Load model, Load types). */
+.ai-verify {
+  flex-shrink: 0;
+  min-width: 92px; /* room for "Verifying…", so the row doesn't shift */
+  height: 30px;
+  padding: 0 14px;
+  background: var(--accent);
   border: 0;
   border-radius: var(--radius-xs);
+  color: var(--accent-ink);
   font-family: var(--font);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
+  transition: background .15s, opacity .15s;
+}
+
+.ai-verify:not(:disabled):hover { background: #d6a64a; }
+.ai-verify:disabled { opacity: .6; cursor: default; }
+.ai-card[data-state="checking"] #ai-key-input { color: var(--text-faint); }
+
+/* Quiet text actions: Cancel while replacing, Remove for a saved key that
+   hasn't passed. Hidden unless popup.js says they apply. */
+.ai-quiet {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 8px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--text-hint);
+  font-family: var(--font);
+  font-size: 11.5px;
+  cursor: pointer;
   transition: background .15s, color .15s;
 }
 
-.ai-btn:disabled { opacity: .5; cursor: default; }
+.ai-quiet[hidden] { display: none; }
+.ai-quiet:hover { background: var(--btn-soft); color: var(--text); }
+.ai-quiet-danger:hover { background: var(--red-bg); color: var(--red); }
 
-.ai-btn-primary {
-  background: var(--btn-dark);
-  color: var(--paper);
-}
-
-.ai-btn-primary:not(:disabled):hover {
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-
-.ai-btn-soft {
-  background: var(--btn-soft);
-  color: var(--text-sec);
-}
-
-.ai-btn-soft:not(:disabled):hover { background: var(--btn-soft-hover); color: var(--text); }
-
-/* Status block — always present, so the key's state is never a guess. */
-/* No key yet: the panel says nothing rather than announcing an absence. */
-.ai-status.none { display: none; }
-
-.ai-status {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-}
-
-.ai-status-dot {
-  flex-shrink: 0;
-  width: 7px;
-  height: 7px;
-  margin-top: 3px;
-  border-radius: 50%;
-  background: var(--text-faint);
-}
-
-.ai-status-copy { min-width: 0; }
-
-.ai-status-title {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--text-sec);
-}
-
-.ai-status-note {
-  margin-top: 2px;
+.ai-error {
+  margin-top: -4px;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--text-hint);
+  color: var(--red);
   overflow-wrap: anywhere;
 }
 
-/* The extension says where data goes; the policy sits one click from the place
-   the API key is entered. */
-.whoami-privacy {
-  align-self: flex-start;
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: .06em;
-  color: var(--text-faint);
-  text-decoration: none;
+.ai-error:empty { display: none; }
+
+/* Verified: who holds the key, on one line, as the identity strip does. */
+.ai-connected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.whoami-privacy:hover { color: var(--accent-hover); text-decoration: underline; }
+/* The provider's mark in a round tile; the green badge says the key passed. */
+.ai-conn-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  background: var(--btn-soft);
+  border-radius: 50%;
+  color: var(--ink);
+}
 
-.ai-status.checking { background: var(--orange-bg); border-color: rgba(184,138,35,.3); }
-.ai-status.checking .ai-status-dot { background: var(--orange); }
-.ai-status.checking .ai-status-title { color: var(--orange); }
+.ai-conn-logo svg { width: 15px; height: 15px; fill: currentColor; }
 
-.ai-status.ok { background: var(--green-bg); border-color: rgba(47,125,79,.3); }
-.ai-status.ok .ai-status-dot { background: var(--green); }
-.ai-status.ok .ai-status-title { color: var(--green); }
+.ai-conn-logo::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--white);
+  border-radius: 50%;
+  background: var(--green);
+}
 
-.ai-status.bad { background: var(--red-bg); border-color: rgba(194,69,47,.3); }
-.ai-status.bad .ai-status-dot { background: var(--red); }
-.ai-status.bad .ai-status-title { color: var(--red); }
+.ai-who { flex: 1; min-width: 0; }
+
+.ai-conn-name {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.ai-conn-meta {
+  margin-top: 1px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-outline {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 12px;
+  background: var(--btn-soft);
+  border: .5px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-sec);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.ai-outline:hover { background: var(--btn-soft-hover); color: var(--text); }
+.ai-connected .ai-quiet { height: 26px; }
 
 
 /* ========== QUERY AREA ========== */
@@ -773,11 +806,12 @@ input[type="text"]::placeholder {
   margin-bottom: 6px;
 }
 
+/* Full pills, the same shape as the tab switcher in the topbar. */
 .op-chip {
   height: 20px;
   padding: 0 8px;
   border: .5px solid var(--border);
-  border-radius: var(--radius-2xs);
+  border-radius: 999px;
   background: var(--btn-soft);
   color: var(--text-sec);
   font-family: var(--mono);
@@ -794,99 +828,103 @@ input[type="text"]::placeholder {
   border-color: var(--border-strong);
 }
 
-/* Date chip — inserts an ISO timestamp counted back from today, midnight UTC. */
-.date-chip-wrap { position: relative; }
+/* Field Names / Field Values: names the setting in force; the swap mark
+   says a click flips it. A touch tighter than its neighbours so FIELD VALUES
+   fits the slot MORE used to have, on one line in both layouts. */
+.value-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px 0 5px;
+  font-size: 10px;
+}
 
-#date-chip[aria-expanded="true"] {
+.value-chip svg { flex-shrink: 0; color: var(--text-faint); }
+.value-chip:hover svg { color: var(--text-sec); }
+
+/* Field Values is the setting switched on; Field Names, the plain chip, is
+   off. "On" wears the app's selected tint (the chosen AI provider, the
+   selected row): light gold, so it stays apart from the solid LOAD chips.
+   Three classes, to outrank the full window's .op-chip border and colour. */
+.op-chip.value-chip.on {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+.op-chip.value-chip.on svg { color: var(--accent); }
+
+.op-chip.value-chip.on:hover {
+  background: #f6e6c2;
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
+}
+
+.op-chip.value-chip.on:hover svg { color: var(--accent-hover); }
+
+/* INSERT — the pill slides the helper chips out inside the toolbar row. Open,
+   it turns gold and its caret points back. */
+.insert-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.insert-caret { flex-shrink: 0; transition: transform .15s ease; }
+
+.op-chip.insert-chip[aria-expanded="true"],
+body.mode-window .op-chip.insert-chip[aria-expanded="true"] {
   background: var(--accent);
   border-color: #a9741f;
   color: var(--accent-ink);
 }
 
-.date-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 30;
-  width: 180px;
-  padding: 4px;
-  background: var(--white);
-  border: .5px solid var(--border-strong);
-  border-radius: var(--radius-xs);
-  box-shadow: var(--shadow-pop);
-}
+.insert-chip[aria-expanded="true"] .insert-caret { transform: rotate(180deg); }
 
-.date-menu-item {
-  display: block;
-  width: 100%;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: var(--radius-2xs);
-  background: transparent;
-  color: var(--text);
-  font-family: var(--font);
-  font-size: 11.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.date-menu-item:hover { background: var(--accent-light); }
-
-.date-menu-sep {
-  height: 1px;
-  margin: 4px 2px;
-  background: var(--border);
-}
-
-.date-menu-custom {
+.insert-row {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px 4px;
-  font-size: 11.5px;
-  color: var(--text-sec);
+  gap: 4px;
+  animation: insertOut .16s ease;
 }
 
-.date-menu-custom input[type="number"] {
-  width: 42px;
-  height: 22px;
-  padding: 0 4px;
-  background: var(--field-bg);
-  border: .5px solid var(--border);
-  border-radius: var(--radius-2xs);
-  color: var(--text);
+.insert-row[hidden] { display: none; }
+
+@keyframes insertOut {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .insert-row { animation: none; }
+  .insert-caret { transition: none; }
+}
+
+.insert-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: var(--border-strong);
+}
+
+.insert-word {
   font-family: var(--mono);
-  font-size: 11px;
-  outline: none;
-}
-
-.date-menu-custom input[type="number"]:focus { border-color: var(--border-strong); }
-
-.date-menu-go {
-  margin-left: auto;
-  height: 22px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: var(--radius-2xs);
-  background: var(--btn-dark);
-  color: var(--paper);
-  font-family: var(--font);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.date-menu-go:hover { background: var(--btn-dark-hover); }
-
-.date-preview {
-  padding: 4px 8px 2px;
-  font-family: var(--mono);
-  font-size: 9px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
   color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
+
+.op-chip.insert-num { padding-left: 6px; padding-right: 6px; }
+
+/* While the chips are out they have the row: the setting and the load chips
+   (overlay), the setting and the lesser tools (full window) step aside. */
+.operator-bar.inserting #value-field,
+.operator-bar.inserting .chip-group,
+.operator-bar.inserting #format-btn,
+.operator-bar.inserting .limit-field,
+.operator-bar.inserting #clear-btn { display: none; }
 
 /* Data-model chip — the single load affordance, and the only readout of model
    state. Three states: idle (gold, call to action), loading (progress fills the
@@ -1006,6 +1044,7 @@ textarea::placeholder { color: var(--text-faint); }
   color: var(--text-hint);
   font-weight: 500;
 }
+
 
 /* ========== AUTOCOMPLETE ========== */
 .autocomplete-dropdown {
@@ -1157,6 +1196,8 @@ textarea::placeholder { color: var(--text-faint); }
   border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
+  /* Several errors, and the "likely cause" under Vault's own, each on a line. */
+  white-space: pre-line;
 }
 
 .result-message.error { background: var(--red-bg); color: var(--red); border: .5px solid rgba(239,68,68,.3); }
@@ -1164,8 +1205,66 @@ textarea::placeholder { color: var(--text-faint); }
 .result-message.success { background: var(--green-bg); color: #2f5b3e; border: .5px solid rgba(47,125,79,.3); }
 
 /* ========== HISTORY POPOVER ========== */
+/* ========== QUERY HISTORY — the editor's corner ========== */
+/* A pill like the syntax chips, pinned top-right inside the editor. */
+.history-corner {
+  position: absolute;
+  z-index: 3;
+  top: 7px;
+  right: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0 8px;
+  background: var(--btn-soft);
+  border: .5px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-sec);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+
+.history-corner svg { flex-shrink: 0; }
+
+.history-corner:hover,
+.history-corner[aria-expanded="true"] {
+  background: var(--btn-soft-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.history-corner:focus-visible { outline: 2px solid var(--accent-glow, rgba(192,138,46,.35)); outline-offset: 1px; }
+
+.history-corner-key {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+/* With text in the editor: just the icon, so it covers as little as it can,
+   and the ↓ hint goes (↓ only steps through history in an empty editor). */
+.textarea-wrapper:not(:has(#vql-input:placeholder-shown)) .history-corner { padding: 0; }
+.textarea-wrapper:not(:has(#vql-input:placeholder-shown)) .history-corner-label,
+.textarea-wrapper:not(:has(#vql-input:placeholder-shown)) .history-corner-key { display: none; }
+
+/* The overlay's editor wraps, so its lines stop short of the icon. */
+body:not(.mode-window) #vql-input { padding-right: 36px; }
+
+/* The list drops from the pill, right-aligned under it. */
 .history-popover {
-  margin-bottom: 12px;
+  position: absolute;
+  z-index: 40;
+  top: 33px;
+  right: 9px;
+  width: min(380px, calc(100% - 18px));
   padding: 12px 14px;
   background: var(--white);
   border: 1px solid var(--border);
@@ -1301,39 +1400,59 @@ textarea::placeholder { color: var(--text-faint); }
 }
 .dm-search-clear:hover { color: var(--text); }
 
-.dm-filters {
+/* The objects you use, as chips: the chosen one wears the selected tint. */
+.dm-objects {
   display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dm-ochip {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
-}
-
-.dm-filter {
-  font-family: var(--font);
-  font-size: 10.5px;
-  font-weight: 500;
-  color: var(--text-hint);
+  height: 24px;
+  padding: 0 10px;
+  border: .5px solid var(--border);
+  border-radius: 999px;
   background: var(--btn-soft);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-2xs);
-  padding: 3px 9px;
+  color: var(--text-sec);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
-  transition: border-color .15s, color .15s, background .15s;
+  transition: background .15s, color .15s, border-color .15s;
 }
 
-.dm-filter:hover { border-color: var(--accent); }
+.dm-ochip:hover { background: var(--btn-soft-hover); color: var(--text); border-color: var(--border-strong); }
 
-.dm-filter.active {
-  font-weight: 600;
-  color: var(--text);
-  background: var(--white);
+.dm-ochip .dm-n {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.dm-ochip.on,
+.dm-ochip.on:hover {
+  background: var(--accent-light);
   border-color: var(--accent);
+  color: var(--accent-hover);
 }
 
-.dm-groupnote {
-  margin-left: auto;
-  font-size: 10.5px;
+.dm-ochip.on .dm-n { color: var(--accent); }
+
+.dm-ochip-all:not(.on) {
+  background: transparent;
+  border-style: dashed;
   color: var(--text-hint);
 }
+
+.dm-ochip:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: 1px; }
+
+/* Fields | Lookups | Children: the Doc Types sort pill, sized to its labels. */
+.dm-switch { align-self: flex-start; }
+.dm-switch .dm-n { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+.dm-switch .dt-sort-opt.active .dm-n { color: var(--text-hint); }
 
 .dm-tree {
   max-height: 440px;
@@ -1350,165 +1469,109 @@ textarea::placeholder { color: var(--text-faint); }
   font-size: 12px;
 }
 
-/* Object group heading — a label for the rows beneath, not a control. */
-.dm-group {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 10px;
-  background: var(--btn-soft);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-}
-
-.dm-group + .dm-group,
-.dm-row + .dm-group { border-top: 1px solid var(--border); }
-.dm-group:hover { background: var(--btn-soft-hover); }
-
-.dm-group-arrow {
-  flex-shrink: 0;
-  width: 7px;
-  font-size: 8px;
-  color: var(--text-faint);
-  transition: transform .15s;
-}
-
-.dm-group.expanded .dm-group-arrow {
-  transform: rotate(90deg);
-  color: var(--text-hint);
-}
-
-.dm-group.expanded { background: var(--btn-soft-hover); }
-
-.dm-group-label {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--text);
-  flex-shrink: 0;
-}
-
-.dm-group-sel {
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  color: var(--ink);
-  background: var(--accent);
-  border: 0;
-  border-radius: 2px;
-  padding: 1px 5px;
-  cursor: pointer;
-}
-
-.dm-group-sel:hover { background: var(--accent-hover); color: var(--white); }
-
-/* "Top 5 by usage" is the default cut; the full list is one click away. */
-.dm-group-more {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 5px 10px 6px 26px;
-  border: 0;
+.dm-section {
+  padding: 8px 10px 4px;
   border-bottom: 1px solid #f2efe4;
-  background: none;
-  font-family: var(--font);
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--accent-hover);
-  cursor: pointer;
-}
-
-.dm-group-more:hover { background: #faf7ec; color: var(--ink); }
-
-.dm-rank-note {
-  padding: 4px 10px 4px 26px;
-  border-bottom: 1px solid #f2efe4;
-  font-size: 9.5px;
-  color: var(--text-faint);
-}
-
-.dm-group-api {
   font-family: var(--mono);
   font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
   color: var(--text-faint);
+}
+
+/* One line per field, relationship or object: label, API name, type. */
+.dm-row,
+.dm-orow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid #f2efe4;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dm-row:last-child,
+.dm-orow:last-child { border-bottom: 0; }
+
+.dm-row:hover,
+.dm-row:focus-visible,
+.dm-orow:hover,
+.dm-orow:focus-visible { background: var(--accent-light); outline: none; }
+
+.dm-row-label {
+  flex-shrink: 0;
+  max-width: 50%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.dm-group-count {
-  margin-left: auto;
-  flex-shrink: 0;
-  font-size: 10px;
-  color: var(--text-hint);
-}
-
-/* Field row: human label over API name, so you can scan either. */
-.dm-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 10px;
-  border-bottom: 1px solid #f2efe4;
-  cursor: pointer;
-}
-
-.dm-row:last-child { border-bottom: 0; }
-.dm-row:hover { background: #faf7ec; }
-
-.dm-row-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.dm-row-label {
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
+}
+
+.dm-row-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.dm-row-api {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10.5px;
   color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dm-row-type {
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-hint);
 }
 
 .dm-row-req {
   flex-shrink: 0;
+  margin-left: -5px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--red);
 }
 
-.dm-row-add {
+.dm-row-in {
   flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent-hover);
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
+  font-size: 10.5px;
+  color: var(--text-hint);
+  white-space: nowrap;
 }
 
-.dm-row:hover .dm-row-add { color: var(--ink); }
+.dm-row-type,
+.dm-orow-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-hint);
+  white-space: nowrap;
+}
+
+/* The type gives way to + SELECT under the pointer or the keyboard. */
+.dm-row-sel {
+  display: none;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-hover);
+  white-space: nowrap;
+}
+
+.dm-row:hover .dm-row-type,
+.dm-row:focus-visible .dm-row-type { display: none; }
+.dm-row:hover .dm-row-sel,
+.dm-row:focus-visible .dm-row-sel { display: inline; }
+.dm-row-sel:hover { color: var(--ink); text-decoration: underline; }
+
+.dm-orow { align-items: center; }
+.dm-orow .dm-row-label { font-size: 12.5px; }
+.dm-orow-arrow { flex-shrink: 0; color: var(--text-faint); }
 
 .dm-more {
   display: flex;
@@ -1532,6 +1595,13 @@ textarea::placeholder { color: var(--text-faint); }
 }
 
 .dm-show-more:hover { color: var(--ink); }
+.dm-show-more:not(.hidden) + .dm-show-more { margin-left: 12px; }
+
+.dm-foot {
+  padding: 0 2px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
 
 .dm-highlight {
   background: #fbeec8;
@@ -1789,11 +1859,12 @@ textarea::placeholder { color: var(--text-faint); }
   flex-direction: column;
 }
 
+/* Doc Types list header: the sort on the left, the count on the right. */
 .dt-sortbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
+  gap: 8px;
+  padding: 7px 8px;
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -1801,44 +1872,57 @@ textarea::placeholder { color: var(--text-faint); }
   z-index: 1;
 }
 
-.dt-count-btn {
-  flex: 1;
-  font-family: var(--font);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text);
-  background: var(--btn-soft);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-2xs);
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: border-color .15s, background .15s;
-}
-
-.dt-count-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--btn-soft-hover); }
-.dt-count-btn:disabled { opacity: .6; cursor: default; }
-
-.dt-sort-dir {
+/* Name | Records: the tab switcher's track and thumb, at list-header size. */
+.dt-sort {
+  display: flex;
   flex-shrink: 0;
-  width: 24px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-hint);
-  background: var(--btn-soft);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-2xs);
-  padding: 3px 0;
-  cursor: pointer;
-  transition: border-color .15s, color .15s, background .15s;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--seg-bg);
 }
 
-.dt-sort-dir:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
-.dt-sort-dir:disabled { opacity: .4; cursor: default; }
+.dt-sort-opt {
+  height: 18px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-sec);
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
 
-.dt-sort-dir.active {
+.dt-sort-opt:not(:disabled):not(.active):hover { color: var(--text); }
+.dt-sort-opt.active {
+  background: var(--seg-thumb);
   color: var(--text);
-  background: var(--white);
-  border-color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,.12);
+}
+.dt-sort-opt:disabled { opacity: .45; cursor: default; }
+.dt-sort-opt:focus-visible { outline: 2px solid var(--accent-glow, rgba(192,138,46,.35)); outline-offset: 1px; }
+.dt-sort-arrow { font-family: var(--mono); }
+
+/* The count: a load chip (see .model-chip), pushed to the row's end. */
+.dt-count-chip { margin-left: auto; }
+
+body.mode-window .dt-sortbar { padding: 8px 10px; }
+body.mode-window .dt-sort-opt { height: 22px; padding: 0 11px; font-size: 12px; }
+
+body.mode-window .dt-count-chip {
+  gap: 5px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
 }
 
 /* Tree */
@@ -2039,6 +2123,86 @@ textarea::placeholder { color: var(--text-faint); }
 .dt-badge.edit { background: var(--green-bg); color: #2f5b3e; }
 .dt-badge.type-badge { background: var(--bg); color: var(--text-hint); font-family: var(--mono); }
 
+/* A picklist field opens its values under the row. */
+.dt-field-row.dt-pick { cursor: pointer; }
+.dt-field-row.dt-pick:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: -2px; }
+.dt-field-row.dt-pick[aria-expanded="true"] { background: var(--bg); }
+.dt-field-row.dt-pick[aria-expanded="true"] .type-badge,
+.dt-field-row.dt-pick:hover .type-badge { color: var(--accent-hover); }
+
+.dt-values {
+  margin: 0 8px 6px;
+  padding: 6px 8px 8px;
+  border-left: 2px solid var(--border);
+  font-size: 11px;
+}
+
+.dt-values-head {
+  padding-bottom: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-hint);
+}
+
+.dt-values-filter {
+  width: 100%;
+  height: 24px;
+  margin-bottom: 5px;
+  padding: 0 7px;
+  background: var(--field-bg);
+  border: .5px solid var(--border);
+  border-radius: var(--radius-2xs);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 11px;
+  outline: none;
+}
+
+.dt-values-filter:focus-visible { outline: 2px solid var(--accent-glow); border-color: var(--accent); }
+
+.dt-values-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* Laid out like a field row: label, then the API name in the field-name face. */
+.dt-value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dt-value:hover,
+.dt-value:focus-visible { background: var(--bg); outline: none; }
+
+.dt-value-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dt-value-name {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--blue);
+}
+
+.dt-value.copied .dt-value-name { color: var(--green-ink, #2f5b3e); }
+
 .dt-field-count {
   padding: 8px 12px;
   font-size: 11px;
@@ -2072,495 +2236,9 @@ textarea::placeholder { color: var(--text-faint); }
   color: var(--text-sec);
 }
 
-/* ========== ASK (VAULT DOCS) ========== */
-/* One card: dark header, scope bar, conversation, composer. */
-.ask-panel {
-  display: flex;
-  flex-direction: column;
-  background: var(--white);
-  border: .5px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-
-/* ---- Scope bar ---- */
-.ask-scope {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
-  background: var(--paper);
-  border-bottom: 1px solid var(--border);
-}
-
-.ask-scope-label {
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-.ask-pill-wrap { position: relative; min-width: 0; }
-
-.ask-pill {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  height: 22px;
-  padding: 0 9px;
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 10px;
-  cursor: pointer;
-  transition: border-color .15s;
-}
-
-.ask-pill:hover,
-.ask-pill[aria-expanded="true"] { border-color: var(--accent); }
-
-.ask-pill-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ask-pill-caret { flex-shrink: 0; color: var(--text-faint); }
-
-.ask-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 30;
-  width: 170px;
-  padding: 4px;
-  background: var(--white);
-  border: .5px solid var(--border-strong);
-  border-radius: var(--radius-xs);
-  box-shadow: var(--shadow-pop);
-}
-
-.ask-menu-item {
-  display: block;
-  width: 100%;
-  padding: 5px 8px;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-2xs);
-  color: var(--text);
-  font-family: var(--font);
-  font-size: 11.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.ask-menu-item:hover { background: var(--accent-light); }
-.ask-menu-item.active { color: var(--accent-hover); font-weight: 600; }
-
-.ask-icon-btn {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin-left: auto;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-xs);
-  color: var(--text-hint);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  transition: color .15s, border-color .15s, background .15s;
-}
-
-.ask-icon-btn:hover {
-  color: var(--text);
-  background: var(--white);
-  border-color: var(--border);
-}
-
-/* ---- Conversation log ---- */
-/* The log is the scroll container, so the header, scope bar and composer stay
-   put and a question can be pinned to the top of it. The cap is px, not vh:
-   inside the overlay iframe the viewport IS our own reported height, so a vh
-   cap would feed back into itself. Long answers arrive clamped, so an exchange
-   normally fits without scrolling at all. */
-.ask-log {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  /* A fixed height, set from the host viewport by fitAskLog(). The panel is
-     therefore the same size empty, thinking and answered — asking a question
-     never moves anything above or below the conversation. The fallback covers
-     the first paint, before content.js has reported. */
-  height: var(--ask-log-h, 420px);
-  overflow-y: auto;
-  /* We place the scroll ourselves; Chrome's scroll anchoring would second-guess
-     it whenever a turn is appended. */
-  overflow-anchor: none;
-  padding: 14px 12px;
-  background: var(--bg);
-}
-
-/* Reserves the room under the newest exchange that lets its question reach the
-   top. Sized by askReserveRoom(). */
-.ask-spacer { flex-shrink: 0; }
-
-/* Empty state — a headline plus three things worth asking. */
-.ask-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  margin: auto 0;
-}
-
-.ask-empty-title {
-  font-family: var(--display);
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.15;
-  color: var(--text);
-}
-
-.ask-empty-body {
-  margin-bottom: 4px;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--text-sec);
-}
-
-/* ---- Messages ---- */
-.ask-msg { display: flex; flex-direction: column; }
-
-.ask-msg.user { align-items: flex-end; }
-
-.ask-msg.user .ask-msg-body {
-  max-width: 84%;
-  padding: 8px 11px;
-  background: var(--ink);
-  border-radius: 10px 10px 2px 10px;
-  color: var(--paper);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.ask-msg-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.ask-avatar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  background: var(--accent);
-  border-radius: var(--radius-2xs);
-  color: var(--accent-ink);
-  font-family: var(--display);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.ask-msg.assistant .ask-msg-body,
-.ask-msg.error .ask-msg-body {
-  min-width: 0;
-  flex: 1;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text);
-}
-
-.ask-msg.error .ask-msg-body { color: var(--red); }
-.ask-msg.error .ask-avatar { background: var(--red); color: var(--paper); }
-
-/* A long answer opens clamped, with the rest a row away. The fade marks the cut
-   so the last visible line does not read as the end of the answer. */
-.ask-answer { overflow: hidden; }
-
-.ask-answer.collapsed {
-  max-height: 240px;
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 52px), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 52px), transparent 100%);
-}
-
-.ask-expand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 100%;
-  margin-top: 7px;
-  padding: 5px 8px;
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  color: var(--text-hint);
-  font-family: var(--mono);
-  font-size: 8.5px;
-  font-weight: 600;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: border-color .15s, background .15s, color .15s;
-}
-
-.ask-expand:hover {
-  border-color: var(--accent);
-  background: var(--accent-light);
-  color: var(--text);
-}
-
-.ask-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.ask-text code {
-  padding: 1px 4px;
-  background: var(--bg-deep);
-  border-radius: 2px;
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-/* ---- Code block ---- */
-.ask-code {
-  margin: 8px 0;
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  overflow: hidden;
-}
-
-.ask-code-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 8px;
-  background: var(--paper);
-  border-bottom: 1px solid var(--border);
-}
-
-.ask-code-lang {
-  font-family: var(--mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-.ask-copy {
-  padding: 2px 6px;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-2xs);
-  color: var(--text-hint);
-  font-family: var(--mono);
-  font-size: 8.5px;
-  font-weight: 600;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.ask-copy:hover { color: var(--text); background: var(--btn-soft); }
-.ask-copy.copied { color: var(--green); }
-
-.ask-code pre {
-  overflow-x: auto;
-  padding: 8px 10px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.6;
-  color: var(--text);
-}
-
-/* ---- Sources ---- */
-.ask-sources {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.ask-source {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  height: 20px;
-  padding: 0 8px;
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--text-sec);
-  font-family: var(--mono);
-  font-size: 9px;
-  text-decoration: none;
-  overflow: hidden;
-}
-
-.ask-source:hover { background: var(--accent-light); border-color: var(--accent); }
-
-.ask-source-n { flex-shrink: 0; color: var(--accent); font-weight: 600; }
-
-/* Not a citation — a note that the user's own schema travelled with the
-   question. Styled as a sibling of the sources so it reads as provenance. */
-.ask-source.ask-context {
-  background: var(--accent-light);
-  border-color: rgba(192, 138, 46, .35);
-  color: var(--accent-hover);
-  cursor: default;
-}
-
-.ask-source-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ---- Thinking ---- */
-.ask-thinking {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 20px;
-}
-
-.ask-dots { display: flex; gap: 3px; }
-
-.ask-dots span {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: askPulse 1.1s ease-in-out infinite;
-}
-
-.ask-dots span:nth-child(2) { animation-delay: .2s; }
-.ask-dots span:nth-child(3) { animation-delay: .4s; }
-
-@keyframes askPulse {
-  0%, 100% { opacity: .25; transform: scale(.8); }
-  50% { opacity: 1; transform: scale(1); }
-}
-
-.ask-thinking-label {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-/* ---- Composer ---- */
-.ask-composer {
-  padding: 8px 10px;
-  background: var(--paper);
-  border-top: 1px solid var(--border);
-}
-
-.ask-field {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 5px 5px 5px 10px;
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  transition: border-color .15s;
-}
-
-.ask-field:focus-within { border-color: var(--accent); }
-
-.ask-field textarea {
-  flex: 1;
-  min-width: 0;
-  /* Overrides the 88px floor the shared textarea rule sets — this one grows
-     from a single line. */
-  min-height: 0;
-  height: 26px;
-  max-height: 120px;
-  padding: 4px 0;
-  background: transparent;
-  border: 0;
-  color: var(--text);
-  font-family: var(--font);
-  font-size: 12px;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
-  overflow-y: auto;
-}
-
-.ask-field textarea::placeholder { color: var(--text-faint); }
-
-.ask-send {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  background: var(--btn-dark);
-  border: 0;
-  border-radius: var(--radius-xs);
-  color: var(--paper);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background .15s, color .15s;
-}
-
-.ask-send:not(:disabled):hover { background: var(--accent); color: var(--accent-ink); }
-.ask-send:disabled { opacity: .45; cursor: default; }
-
-body.mode-window #vql-panel[data-active-tab="ask"] #tab-query { display: none; }
-body.mode-window #vql-panel[data-active-tab="ask"] #tab-ask {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  padding: 12px;
-  overflow-y: auto;
-}
-body.mode-window #tab-ask .ask-panel { flex: 1; min-height: 0; }
-body.mode-window #tab-ask .ask-log { flex: 1; height: auto; overflow-y: auto; }
-
-/* Capped on the message, not the log: the code card sits inside the message
-   body, so this gives code and prose the same measure. Without it the card
-   fills the window while the prose beside it wraps wherever the model put its
-   newlines, and the two no longer line up. */
-body.mode-window #tab-ask .ask-msg { max-width: 78ch; }
-
-/* The composer lines up with the conversation above it: left at full width it
-   was a single-line input stretching well past the column it belongs to. */
-body.mode-window #tab-ask .ask-field { max-width: calc(78ch + 24px); }
-
 @media (prefers-reduced-motion: reduce) {
-  .ask-answer,
-  .ask-expand,
-  .ask-pill,
-  .ai-tile { transition: none !important; }
-  .ask-dots span { animation: none; opacity: .7; }
+  .ai-key-field,
+  .ai-verify { transition: none !important; }
 }
 
 /* ========== UTILITIES ========== */
@@ -2714,95 +2392,180 @@ body.mode-window {
   letter-spacing: 0;
 }
 
+/* The workbench: the rail down the left, everything else beside it, and a
+   status bar along the bottom. */
 body.mode-window .shell {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 28px;
+  grid-template-areas: "rail main" "status status";
   height: 100vh;
   padding: 0;
 }
 
-/* ---- Top bar ---- */
+body.mode-window #vql-panel,
+body.mode-window #connection-panel { grid-area: main; }
+
+/* ---- The rail: the top bar's jobs, as one column of tools ---- */
+/* Query, Doc Types and Skills choose what fills the main column (the shown one
+   on a white tile, as the old switcher's thumb). Below a rule, Data model and
+   History open a panel beside the rail (gold tint while open). User and the
+   window buttons sit at the foot. */
 body.mode-window .topbar {
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 52px;
-  padding: 8px 16px;
+  grid-area: rail;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 12px 0;
   margin: 0;
-  background: var(--white);
-  border-bottom: 1px solid var(--border);
+  /* A very short window scrolls the rail rather than spilling it. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--chrome);
+  border-right: 1px solid var(--border);
 }
 
-body.mode-window .logo { width: 24px; height: 24px; }
+body.mode-window .logo { width: 28px; height: 28px; margin-bottom: 10px; }
 
-body.mode-window .topbar-title {
-  display: block;
-  margin: 0 12px 0 2px;
-  font-size: 21px;
-  font-weight: 700;
-}
-
-/* The switcher stays useful in full-window mode, but only to choose what fills
-   the main column — Models is always the sidebar, so its button is redundant. */
-body.mode-window .tab[data-tab="datamodel"] { display: none; }
+body.mode-window .topbar-title,
+body.mode-window .topbar-chip-slot,
+body.mode-window .topbar-sep { display: none !important; }
 
 body.mode-window .tabs {
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+
+body.mode-window .tab-thumb { display: none; }
+
+body.mode-window .tab,
+body.mode-window .rail-btn {
   display: flex;
-  gap: 2px;
-  margin-right: 12px;
-  padding: 3px;
-  border-radius: 8px;
-}
-
-body.mode-window .tab {
+  align-items: center;
+  justify-content: center;
   flex: none;
-  height: auto;
-  min-height: 0;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 18px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+  transition: background .15s, color .15s;
 }
 
-body.mode-window .tab.active { font-weight: 600; }
+body.mode-window .tab:hover,
+body.mode-window .rail-btn:hover { background: var(--hover); color: var(--ink); }
 
-body.mode-window .tab-thumb {
-  top: 3px;
-  bottom: 3px;
-  border-radius: 6px;
+body.mode-window .tab.active {
+  background: var(--white);
+  color: var(--ink);
   box-shadow: 0 1px 2px rgba(26,25,21,.12);
 }
 
-/* Vault and user in one pill, centred in whatever room the row leaves. A zero
-   basis, so on a narrow window the address ellipsises before the icon cluster
-   wraps onto a second row. */
-body.mode-window .topbar-conn {
-  display: flex;
-  flex: 1 1 0;
-  justify-content: center;
-  min-width: 140px;
-  margin-right: 12px;
+body.mode-window .tab.on,
+body.mode-window .rail-btn.on { background: var(--accent-light); color: var(--accent-hover); }
+
+body.mode-window .tab:focus-visible,
+body.mode-window .rail-btn:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: 1px; }
+
+body.mode-window .tab-icon { display: block; }
+
+/* Read by screen readers; the tooltip shows it to everyone else. */
+body.mode-window .tab-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
-body.mode-window .conn-pill {
+/* Data model goes last of the four, under a rule, with History after it. */
+body.mode-window .tab[data-tab="datamodel"] {
+  position: relative;
+  order: 10;
+  margin-top: 13px;
+}
+
+body.mode-window .tab[data-tab="datamodel"]::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 8px;
+  right: 8px;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Disconnect leaves an empty window with nowhere to reconnect from; closing the
+   tab does the same job. */
+body.mode-window #disconnect-btn { display: none !important; }
+
+body.mode-window #whoami-btn { margin-top: auto; }
+
+body.mode-window .topbar-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--text-sec);
+}
+
+body.mode-window .topbar-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
+}
+
+/* ---- Status bar: the vault and the model loads ---- */
+body.mode-window .statusbar {
+  grid-area: status;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   min-width: 0;
-  max-width: 100%;
-  padding: 5px 12px;
-  background: var(--field-bg);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  padding: 0 10px 0 14px;
+  background: var(--chrome);
+  border-top: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 11px;
+  color: var(--text-sec);
 }
 
-body.mode-window .status-pill,
-body.mode-window .status-pill.connected {
+.status-left { display: flex; min-width: 0; }
+.status-spacer { flex: 1; }
+.status-api:empty { display: none; }
+.status-right { display: flex; align-items: center; }
+
+body.mode-window .statusbar .topbar-conn { display: flex; min-width: 0; }
+
+body.mode-window .statusbar .conn-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* The overlay hides the pill once connected; here it names the vault. */
+body.mode-window .statusbar .status-pill,
+body.mode-window .statusbar .status-pill.connected {
   display: inline-flex;
-  gap: 10px;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
   padding: 0;
   background: none;
   border: 0;
@@ -2811,42 +2574,40 @@ body.mode-window .status-pill.connected {
   color: var(--ink);
 }
 
-body.mode-window .status-dot { width: 8px; height: 8px; }
-body.mode-window .status-pill.connecting { color: var(--orange); }
-body.mode-window .status-pill.disconnected { color: var(--red); }
-body.mode-window .conn-pill:has(.status-pill.disconnected) { border-color: rgba(194,69,47,.35); }
+body.mode-window .statusbar .status-pill.connecting { color: var(--orange); }
+body.mode-window .statusbar .status-pill.disconnected { color: var(--red); }
+body.mode-window .statusbar .status-dot { width: 7px; height: 7px; }
 
-body.mode-window .topbar-user {
+body.mode-window .statusbar .topbar-user {
   display: block;
-  flex-shrink: 1;
   min-width: 0;
-  max-width: 32ch;
+  max-width: 36ch;
   font-size: inherit;
   color: var(--text-sec);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-body.mode-window .topbar-user:empty { display: none; }
+body.mode-window .statusbar .topbar-user:empty { display: none; }
 
-body.mode-window .topbar-user::before {
+body.mode-window .statusbar .topbar-user::before {
   content: "·";
-  margin-right: 10px;
+  margin-right: 8px;
   color: var(--text-faint);
 }
 
-/* Model state chips. */
-body.mode-window .topbar-chip-slot { display: flex; }
-body.mode-window .topbar-chip-slot .chip-group { gap: 8px; margin-left: 0; }
+body.mode-window .statusbar .chip-group { gap: 6px; margin-left: 0; }
 
-body.mode-window .topbar-chip-slot .model-chip {
-  gap: 6px;
+body.mode-window .statusbar .model-chip {
+  gap: 5px;
   min-width: 0;
-  height: auto;
-  padding: 5px 10px;
+  height: 20px;
+  padding: 0 8px;
   border: 0;
-  border-radius: 6px;
-  font-size: 11px;
+  border-radius: 4px;
+  font-size: 10px;
   font-weight: 600;
-  line-height: 16px;
   letter-spacing: .04em;
 }
 
@@ -2862,46 +2623,53 @@ body.mode-window .model-chip.loaded {
 body.mode-window .model-chip.loaded:hover { background-color: #cfe3d4; }
 body.mode-window .model-chip.failed { box-shadow: inset 0 0 0 1px var(--red); }
 
-body.mode-window .topbar-sep-chips {
-  height: 22px;
-  margin: 0 4px;
-  background: var(--border);
+/* Larger, as the window's chips and editor are. */
+body.mode-window .history-corner {
+  top: 10px;
+  right: 14px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  letter-spacing: 0;
 }
 
-/* Disconnect leaves an empty window with nowhere to reconnect from; closing the
-   tab does the same job. The expand/collapse divider goes with it. */
-body.mode-window #disconnect-btn,
-body.mode-window .topbar-sep-window { display: none !important; }
+body.mode-window .history-corner[aria-expanded="true"] { border-color: #a9741f; }
 
-body.mode-window .topbar-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 6px;
-  color: var(--text-mid);
+/* This editor scrolls sideways rather than wrapping, so a long first line can
+   run under the corner. With text in it, the icon waits for the pointer over
+   the editor, keyboard focus, or its own open list. */
+body.mode-window .textarea-wrapper:not(:has(#vql-input:placeholder-shown)) .history-corner {
+  opacity: 0;
+  transition: opacity .15s, background .15s, color .15s, border-color .15s;
 }
 
-body.mode-window .topbar-icon svg {
-  width: 18px;
-  height: 18px;
-  stroke-width: 1.8;
+body.mode-window .textarea-wrapper:not(:has(#vql-input:placeholder-shown)):hover .history-corner,
+body.mode-window .textarea-wrapper:not(:has(#vql-input:placeholder-shown)) .history-corner:is(:focus-visible, [aria-expanded="true"]) {
+  opacity: 1;
 }
 
-/* Popovers float over the layout instead of pushing it around. */
-body.mode-window .whoami-popover,
 body.mode-window .history-popover {
+  top: 40px;
+  right: 14px;
+  width: min(440px, calc(100% - 28px));
+  border-radius: 10px;
+}
+
+/* The popover floats over the layout instead of pushing it around. At 320px
+   the login line ellipsised and the profile and vault chips were forced onto
+   separate rows, hence 380. */
+body.mode-window .whoami-popover {
   position: absolute;
-  top: 58px;
-  right: 16px;
+  left: 64px;
+  bottom: 36px;
   z-index: 20;
-  width: 320px;
+  width: 380px;
   max-height: calc(100vh - 70px);
   overflow-y: auto;
   margin: 0;
 }
-
-/* Wider than the history list: at 320px the login line ellipsises and the
-   profile and vault chips are forced onto separate rows. */
-body.mode-window .whoami-popover { width: 380px; }
 
 /* ---- Columns ---- */
 body.mode-window #vql-panel {
@@ -2909,6 +2677,51 @@ body.mode-window #vql-panel {
   display: flex;
   min-height: 0;
 }
+
+/* ---- Explorer: the data model or the history, beside the rail ---- */
+body.mode-window[data-explorer="history"] #tab-datamodel,
+body.mode-window[data-explorer="none"] #tab-datamodel { display: none; }
+
+body.mode-window .explorer-history { display: none; }
+
+body.mode-window[data-explorer="history"] .explorer-history {
+  display: flex;
+  flex-direction: column;
+  order: -1;
+  width: clamp(260px, 21vw, 320px);
+  flex-shrink: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--white);
+  border-right: 1px solid var(--border);
+}
+
+.eh-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 14px 10px;
+}
+
+.eh-title {
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.eh-clear {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-hint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.eh-clear:hover { background: var(--hover); color: var(--ink); }
 
 /* ---- Data model sidebar ---- */
 /* Both panes are visible at once, so .active no longer gates display. */
@@ -2981,8 +2794,6 @@ body.mode-window .dm-search-key {
 body.mode-window .dm-search-field:focus-within .dm-search-key,
 body.mode-window .dm-search-field.filled .dm-search-key { display: none; }
 
-body.mode-window .dm-filters { margin: 0 14px 8px; }
-
 body.mode-window .dm-tree {
   display: flex;
   flex-direction: column;
@@ -3008,109 +2819,20 @@ body.mode-window .dm-section {
 }
 
 body.mode-window .dm-section:first-child { padding-top: 4px; }
+body.mode-window .dm-section { border-bottom: 0; font-weight: 400; }
 
-/* An object: heading row, and when open, its fields on a tinted band. */
-body.mode-window .dm-obj { border-bottom: 1px solid var(--rule-soft); }
+body.mode-window .dm-objects { margin: 0 14px 10px; }
+body.mode-window .dm-ochip { height: 26px; font-size: 12px; }
+body.mode-window .dm-ochip .dm-n { font-size: 10.5px; }
+body.mode-window .dm-switch { margin: 0 14px 8px; }
 
-body.mode-window .dm-obj.open {
-  background: var(--hover);
-  border-top: 1px solid var(--rule);
-  border-bottom-color: var(--rule);
-}
-
-body.mode-window .dm-section + .dm-obj:not(.open) { border-top: 0; }
-
-body.mode-window .dm-group {
-  position: relative;
-  gap: 8px;
-  padding: 8px 14px;
-  background: transparent;
-  border: 0;
-  outline: none;
-}
-
-body.mode-window .dm-group + .dm-group,
-body.mode-window .dm-row + .dm-group { border-top: 0; }
-
-body.mode-window .dm-group:hover,
-body.mode-window .dm-group:focus-visible { background: rgba(26,25,21,.035); }
-
-body.mode-window .dm-group.expanded { background: transparent; }
-
-body.mode-window .dm-group-arrow {
-  width: 10px;
-  height: 10px;
-  color: var(--text-mid);
-}
-
-body.mode-window .dm-group-label { font-size: 13px; }
-
-body.mode-window .dm-group-api {
-  min-width: 0;
-  font-size: 11px;
-  color: var(--text-hint);
-}
-
-body.mode-window .dm-group-count {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-hint);
-}
-
-/* The SEL shortcut takes the count's place on hover rather than costing every
-   row its width. */
-body.mode-window .dm-group-sel {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  display: none;
-  transform: translateY(-50%);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 9px;
-}
-
-body.mode-window .dm-group:hover .dm-group-sel,
-body.mode-window .dm-group:focus-visible .dm-group-sel,
-body.mode-window .dm-group-sel:focus-visible { display: block; }
-
-body.mode-window .dm-group:hover > .dm-group-count,
-body.mode-window .dm-group:focus-visible > .dm-group-count { visibility: hidden; }
-
-/* Search results: each matching object heads its own band of fields. */
-body.mode-window .dm-group-hit {
-  margin-top: 4px;
-  background: var(--hover);
-  border-top: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-}
-
-body.mode-window .dm-group-hit:hover { background: #ece6d7; }
-
-/* The long tail: one line per object, opened in place. */
-body.mode-window .dm-group-line {
-  justify-content: space-between;
-  padding: 6px 14px;
-}
-
-body.mode-window .dm-group-line .dm-group-api {
-  font-size: 12px;
-  color: var(--text-mid);
-}
-
-body.mode-window .dm-group-line .dm-group-count { color: var(--text-faint); }
-
-body.mode-window .dm-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 0 8px 8px 26px;
-}
-
-body.mode-window .dm-row {
+body.mode-window .dm-row,
+body.mode-window .dm-orow {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  width: auto;
+  margin: 0 6px;
   padding: 4px 8px;
   background: transparent;
   border: 0;
@@ -3121,11 +2843,12 @@ body.mode-window .dm-row {
   text-align: left;
 }
 
-body.mode-window .dm-tree > .dm-row { margin: 1px 8px 0 26px; }
-body.mode-window .dm-row:last-child { border-bottom: 0; }
+body.mode-window .dm-tree { padding-top: 6px; border-top: 1px solid var(--rule); }
 
 body.mode-window .dm-row:hover,
-body.mode-window .dm-row:focus-visible {
+body.mode-window .dm-row:focus-visible,
+body.mode-window .dm-orow:hover,
+body.mode-window .dm-orow:focus-visible {
   background: #e9dfc6;
   outline: none;
 }
@@ -3140,6 +2863,19 @@ body.mode-window .dm-row-name {
 
 body.mode-window .dm-row-req { flex-shrink: 0; margin-left: -6px; font-size: 11px; }
 
+/* Narrow here: field rows show the API name, and the label only when the
+   search matched it alone. Objects keep both. */
+body.mode-window .dm-row .dm-row-label { display: none; }
+body.mode-window .dm-row.label-hit .dm-row-label { display: inline; }
+
+body.mode-window .dm-orow { align-items: center; padding: 6px 8px; font-family: var(--font); }
+body.mode-window .dm-orow .dm-row-label { max-width: 60%; font-size: 13px; color: var(--ink); }
+body.mode-window .dm-orow .dm-row-name { font-size: 11px; }
+body.mode-window .dm-orow-count { font-size: 11px; }
+
+body.mode-window .dm-row-in { font-family: var(--font); font-size: 11px; }
+body.mode-window .dm-row-sel { font-size: 10.5px; }
+
 body.mode-window .dm-row-label {
   flex: 0 1 auto;
   max-width: 45%;
@@ -3153,23 +2889,14 @@ body.mode-window .dm-row-label {
 
 body.mode-window .dm-row-type { margin-left: auto; font-size: 10px; }
 
-body.mode-window .dm-group-more {
-  padding: 6px 8px;
-  border: 0;
-  background: none;
-  text-align: left;
-  color: var(--accent-hover);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 400;
-}
-
-body.mode-window .dm-group-more:hover { color: var(--ink); background: none; text-decoration: underline; }
-
 body.mode-window .dm-more {
   padding: 8px 14px;
   border-top: 1px solid var(--rule);
+  font-size: 11px;
 }
+
+body.mode-window .dm-showing,
+body.mode-window .dm-show-more { font-size: 11px; }
 
 body.mode-window .dm-foot {
   flex-shrink: 0;
@@ -3212,15 +2939,17 @@ body.mode-window .dm-empty-load {
 body.mode-window .dm-empty-load:hover { background: #d6a64a; }
 
 /* ---- Main column ---- */
+/* Flat panes edge to edge: editor, split, results. */
 body.mode-window #tab-query {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  gap: 12px;
-  padding: 12px;
-  overflow-y: auto;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--white);
 }
 
 /* Query card: tab strip, toolbar, editor. No overflow clipping — the date menu
@@ -3233,24 +2962,30 @@ body.mode-window .query-card {
   margin: 0;
   padding: 0;
   background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 0;
+  border-radius: 0;
   box-shadow: none;
-  transition: border-color .15s;
 }
 
-body.mode-window .query-card:focus-within { border-color: var(--border-strong); }
-
-.query-tabs {
+.query-tabbar {
   display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding: 6px 8px 0;
+  gap: 12px;
+  /* The toolbar's own inset, so the field ends flush with Run below it. */
+  padding-right: 10px;
   background: var(--chrome);
-  border-radius: 10px 10px 0 0;
+  border-radius: 0;
   /* The strip's bottom rule, drawn under the tabs so the active one can cover
      it and join the toolbar below. */
   box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.query-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 8px 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -3352,7 +3087,7 @@ body.mode-window .op-chip {
   height: auto;
   padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 999px;
   font-size: 11px;
   line-height: 15px;
   letter-spacing: 0;
@@ -3361,7 +3096,13 @@ body.mode-window .op-chip {
 
 body.mode-window .op-chip:hover { border-color: var(--border-strong); }
 
-body.mode-window #date-chip[aria-expanded="true"] { border-color: #a9741f; }
+body.mode-window .op-chip.value-chip {
+  padding: 4px 6px 4px 7px;
+  font-size: 11px;
+}
+
+body.mode-window .insert-word { font-size: 10.5px; }
+body.mode-window .op-chip.insert-num { padding-left: 7px; padding-right: 7px; }
 
 .editor-tools {
   display: flex;
@@ -3439,9 +3180,26 @@ body.mode-window .editor-tools #run-btn:disabled { opacity: .75; }
 }
 
 /* The shortcut is the first thing to go when the toolbar runs short; the
-   button's tooltip still names it. */
-@container (max-width: 780px) {
+   button's tooltip still names it. With the helpers folded into INSERT the
+   full label fits down to a ~640px editor (1280px with a row drawer open). */
+@container (max-width: 640px) {
   .run-key { display: none; }
+}
+
+/* Then "Run query" becomes "Run", and a little air comes out of the chips and
+   tools, so Field Values still fits the line. */
+/* With the chips out at 1280px and a row drawer open, Run keeps only its
+   icon and "Run" so the row stays one line. */
+@container (max-width: 700px) {
+  .operator-bar.inserting .run-word,
+  .operator-bar.inserting .run-key { display: none; }
+}
+
+@container (max-width: 580px) {
+  .run-word { display: none; }
+  body.mode-window .op-chip { padding-left: 7px; padding-right: 7px; }
+  .editor-tools { gap: 6px; }
+  .tool-btn { padding-left: 8px; padding-right: 8px; }
 }
 
 /* Run sits under the editor in the overlay; here it is on the toolbar and the
@@ -3537,12 +3295,41 @@ body.mode-window .results-panel {
   display: flex;
   flex-direction: column;
   flex: 1 1 0;
-  min-height: 360px;
+  min-height: 0;
   margin: 0;
   background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 0;
+  border-radius: 0;
 }
+
+/* The split between editor and results: drag, arrow keys, double-click. */
+.split-handle {
+  position: relative;
+  flex-shrink: 0;
+  height: 9px;
+  background: var(--chrome);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.split-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 36px;
+  height: 3px;
+  margin: -1.5px 0 0 -18px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
+.split-handle:hover::after,
+body.resizing .split-handle::after { background: var(--accent); }
+.split-handle:focus-visible { outline: none; background: var(--accent-light); }
+body.resizing { cursor: row-resize; user-select: none; }
 
 body.mode-window .results-panel:not(.has-results) .results-header { display: flex; }
 
@@ -3843,7 +3630,35 @@ body.mode-window .inspector {
   border-left: 1px solid var(--border);
 }
 
-body.mode-window #vql-panel:not([data-active-tab="query"]) .inspector { display: none; }
+body.mode-window #vql-panel:not([data-active-tab="query"]) .inspector,
+body.mode-window #vql-panel:not(.row-open) .inspector { display: none; }
+
+/* A drawer now, so it reads as opened over the results rather than as a column. */
+body.mode-window .inspector {
+  width: clamp(280px, 22vw, 340px);
+  box-shadow: -6px 0 18px rgba(22,21,15,.06);
+}
+
+.insp-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.insp-close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.insp-close:hover { background: var(--hover); color: var(--ink); }
 
 .insp-row {
   display: flex;
@@ -3963,7 +3778,7 @@ body.mode-window #vql-panel:not([data-active-tab="query"]) .inspector { display:
 .recent-meta { font-size: 11px; color: var(--text-hint); }
 .recent-fail { color: var(--red); }
 
-/* ---- Doc Types and Ask take over the main column ---- */
+/* ---- Doc Types takes over the main column ---- */
 body.mode-window #vql-panel[data-active-tab="doctypes"] #tab-query { display: none; }
 body.mode-window #vql-panel[data-active-tab="doctypes"] #tab-doctypes {
   display: flex;
@@ -3984,9 +3799,8 @@ body.mode-window #tab-doctypes .dt-layout {
   box-shadow: none;
 }
 
-/* Not-loaded and no-key notes sit on a card like the panes they stand in for. */
-body.mode-window #dt-empty,
-body.mode-window #ask-nokey {
+/* The not-loaded note sits on a card like the pane it stands in for. */
+body.mode-window #dt-empty {
   padding: 28px 20px;
   background: var(--white);
   border: 1px solid var(--border);
@@ -3995,11 +3809,82 @@ body.mode-window #ask-nokey {
   color: var(--text-sec);
 }
 
-body.mode-window #tab-ask .ask-panel {
+/* ---- Skills takes over the main column too ---- */
+body.mode-window #vql-panel[data-active-tab="skills"] #tab-query { display: none; }
+body.mode-window #vql-panel[data-active-tab="skills"] #tab-skills {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+/* Card edges as the query card and the Doc Types pane, across the column like
+   them; the form inside keeps a reading width (.ai-row's max-width). Sizes
+   follow the sidebar's empty state and search field. */
+body.mode-window .ai-card {
+  padding: 20px 22px;
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: none;
 }
+
+body.mode-window .ai-card[data-state="ok"] { padding: 16px 18px; }
+
+body.mode-window .ai-title,
+body.mode-window .ai-conn-name { font-size: 18px; }
+
+body.mode-window .ai-lede {
+  font-size: 13px;
+  color: var(--text-sec);
+}
+
+body.mode-window .ai-row { gap: 8px; }
+
+body.mode-window .ai-key-field,
+body.mode-window .ai-verify,
+body.mode-window .ai-quiet { height: 34px; }
+
+body.mode-window .ai-key-field { border-radius: 6px; }
+body.mode-window .ai-provider { padding: 0 6px 0 5px; gap: 2px; }
+body.mode-window .ai-prov { width: 32px; height: 26px; }
+body.mode-window .ai-prov svg { width: 16px; height: 16px; }
+body.mode-window .ai-prov.active { background: var(--seg-bg); }
+body.mode-window .ai-conn-logo { width: 34px; height: 34px; background: var(--seg-bg); }
+body.mode-window .ai-conn-logo svg { width: 17px; height: 17px; }
+body.mode-window #ai-key-input { font-size: 12.5px; padding: 0 12px; }
+body.mode-window .ai-key-reveal { font-size: 10px; }
+
+body.mode-window .ai-verify {
+  min-width: 108px;
+  padding: 0 16px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+body.mode-window .ai-quiet { border-radius: 6px; font-size: 13px; }
+body.mode-window .ai-error { font-size: 12px; }
+body.mode-window .ai-conn-meta { font-size: 11px; }
+
+/* As the editor toolbar's Clear and Format buttons. */
+body.mode-window .ai-outline,
+body.mode-window .ai-connected .ai-quiet {
+  height: auto;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+body.mode-window .ai-outline {
+  border: 1px solid var(--border);
+  background: var(--field-bg);
+  color: var(--text-mid);
+  font-weight: 400;
+}
+
+body.mode-window .ai-outline:hover { background: var(--hover); }
 
 /* 42% of a 660px overlay is a sensible tree; 42% of a full-width column is a
    lot of space for type names and leaves the fields cramped. */
@@ -4017,15 +3902,197 @@ body.mode-window .dt-tree-panel {
   .dt-node-sublabel { display: none; }
 }
 
-/* ---- Narrow windows ---- */
-/* The inspector goes first; its recent queries are also under the clock. */
-@media (max-width: 1180px) {
-  body.mode-window .inspector { display: none; }
+/* ========== RELATIONSHIPS AND SUBQUERIES ========== */
+/* Autocomplete: functions, lookups (rel.) and subqueries get their own badge. */
+.ac-badge.fn { background: rgba(47,125,79,.13); color: #2f6b46; }
+.ac-badge.rel,
+.ac-badge.sub { background: rgba(20,120,130,.13); color: #1d5f66; }
+
+/* Relationships, after an opened object's fields: ↑ lookups, ↓ child records. */
+.dm-rel-head {
+  padding: 7px 10px 3px 26px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-hint);
 }
 
-/* Then the wordmark (the mark stays) and some sidebar width, so the top bar
-   keeps to one row. */
+.dm-rel-note {
+  padding: 4px 10px 6px 26px;
+  font-size: 10px;
+  color: var(--text-hint);
+}
+
+body.mode-window .dm-rel-head {
+  padding: 8px 8px 2px;
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
+body.mode-window .dm-rel-note { padding: 4px 8px; }
+
+body.mode-window .dm-rel .dm-row-name {
+  flex: 0 0 auto;
+  max-width: 64%;
+}
+
+body.mode-window .dm-rel .dm-row-type {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A subquery cell: the count of related records, as a pill in the same
+   shape as the status pills (.cell-pill), in their neutral tone. */
+.sub-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg-deep, #ece8de);
+  color: var(--text-mid, var(--text-sec));
+  font: inherit;
+  line-height: 1.35;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The triangle says "opens here", which is only true in the panel; the full
+   window shows the records in the inspector. Empty alt text keeps screen
+   readers from reading the glyph out. */
+body:not(.mode-window) .sub-chip::after { content: "\25B8" / ""; font-size: 9px; }
+body:not(.mode-window) .sub-chip[aria-expanded="true"]::after { content: "\25BE" / ""; }
+
+.sub-none {
+  color: var(--text-faint);
+}
+.sub-chip:hover { background: var(--accent-light); color: var(--ink); }
+.sub-chip:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: 1px; }
+
+.results-table tr.sub-row > td {
+  padding: 6px 10px 10px;
+  background: #faf7ec;
+  white-space: normal;
+}
+
+.sub-head {
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-hint);
+}
+
+.sub-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.sub-table {
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.sub-table th,
+.sub-table td {
+  max-width: 240px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* As .results-table th in the panel: mono capitals, spaced. */
+.sub-table th {
+  background: var(--bg);
+  color: var(--text-sec);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.sub-table td { color: var(--text); font-size: 11.5px; }
+.sub-table th.col-id,
+.sub-table td.col-id { color: var(--text-hint); }
+.sub-table td.col-id { font-family: var(--mono); font-size: 10.5px; }
+
+/* As .results-table th in the full window: the chrome band, sentence case. */
+body.mode-window .sub-table { font-family: var(--mono); font-size: 11px; }
+body.mode-window .sub-table th {
+  background: var(--chrome);
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+body.mode-window .sub-table td { font-size: 11px; border-bottom-color: var(--rule-soft); }
+body.mode-window .sub-table td.col-id { font-size: 11px; color: var(--text-mid); }
+
+.sub-empty,
+.sub-note {
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--text-hint);
+  white-space: normal;
+}
+
+.sub-note { margin-top: 4px; }
+
+/* The inspector gives related records the full width under their name. */
+.insp-fields dt.insp-sub-name { grid-column: 1 / -1; margin-top: 4px; white-space: normal; overflow-wrap: anywhere; }
+.insp-fields dd.insp-sub:focus { outline: none; }
+.insp-fields dd.insp-sub:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: 2px; }
+.insp-fields dt.insp-sub-name span { margin-left: 6px; color: var(--accent-hover); }
+.insp-fields dd.insp-sub { grid-column: 1 / -1; }
+.insp-fields .sub-table th,
+.insp-fields .sub-table td { max-width: 160px; }
+
+/* Read-only for this user on this record, as Vault reported it. */
+.results-table td.cell-locked { color: var(--text-hint); }
+
+/* Read by screen readers, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* A click on a cell that won't edit says why, in the edit hint's place. */
+.hint-lock { color: var(--accent-hover); }
+
+/* ---- Narrow windows ---- */
+/* The row drawer lies over the results instead of squeezing them. */
+@media (max-width: 1180px) {
+  body.mode-window #vql-panel { position: relative; }
+  body.mode-window .inspector {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 15;
+    box-shadow: -10px 0 30px rgba(22,21,15,.16);
+  }
+}
+
+/* Then some explorer width. */
 @media (max-width: 1000px) {
-  body.mode-window #tab-datamodel { width: 240px; }
-  body.mode-window .topbar-title { display: none; }
+  body.mode-window #tab-datamodel,
+  body.mode-window[data-explorer="history"] .explorer-history { width: 240px; }
 }

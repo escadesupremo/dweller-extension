@@ -315,7 +315,7 @@
     </div>
     <div class="topmeta">
       <span>Privacy policy</span>
-      <span>Updated 5 Nov 2026</span>
+      <span>Updated 7 Nov 2026</span>
       <span>Applies to v1.0.0+</span>
     </div>
   </div>
@@ -359,7 +359,7 @@
     <span class="eyebrow">On this page</span>
     <a href="#stored"><span class="num">01</span>Stored on your device</a>
     <a href="#session"><span class="num">02</span>Your Vault session</a>
-    <a href="#ai"><span class="num">03</span>The AI feature</a>
+    <a href="#ai"><span class="num">03</span>The AI provider key</a>
     <a href="#not"><span class="num">04</span>What we do not do</a>
     <a href="#other"><span class="num">05</span>Children, changes, contact</a>
   </nav>
@@ -408,17 +408,15 @@
     <section id="ai">
       <div class="sec-head">
         <span class="num">03</span>
-        <h2>The AI feature</h2>
+        <h2>The AI provider key</h2>
       </div>
-      <p>No AI request is made until an API key is saved. When a question is submitted, the following is transmitted to the configured provider and nothing else:</p>
+      <p>No AI request is made until an API key is saved. Saving one sends a single check to the provider you chose, to confirm the key works, and nothing else:</p>
 
       <div class="disclose">
         <ul>
-          <li><span>The question text</span></li>
-          <li><span>Documentation passages retrieved for it</span></li>
-          <li><span>Schema metadata: object and field API names and types, document type names, and the VQL in the editor</span></li>
+          <li><span>The API key, in the request header, to the provider it belongs to</span></li>
         </ul>
-        <p class="after"><code>docs.veevavault.dev</code> receives the question text only; no credentials are sent. Each answer states what was included, beside its citations.</p>
+        <p class="after">The check asks the provider to list its models. No questions, queries, schema metadata or Vault data are sent to any AI provider.</p>
       </div>
 
       <div class="callout">

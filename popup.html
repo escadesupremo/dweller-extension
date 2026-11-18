@@ -12,13 +12,32 @@
       <img class="logo" src="icons/icon-mark.png" alt="Vault Dweller" />
       <div class="topbar-title">Vault Dweller</div>
 
+      <!-- The full window turns this into the workbench rail: icons only, with
+           the labels kept for screen readers and tooltips. There, Models opens
+           and closes the data model panel rather than taking a pane. -->
       <div class="tabs">
         <div class="tab-thumb"></div>
-        <button class="tab active" data-tab="query">Query</button>
-        <button class="tab" data-tab="datamodel">Models</button>
-        <button class="tab" data-tab="doctypes">Doc Types</button>
-        <button class="tab" data-tab="ask">Ask</button>
+        <button class="tab active" data-tab="query" title="Query">
+          <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <span class="tab-label">Query</span>
+        </button>
+        <button class="tab" data-tab="datamodel" title="Data model">
+          <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+          <span class="tab-label">Models</span>
+        </button>
+        <button class="tab" data-tab="doctypes" title="Document types">
+          <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="tab-label">Doc Types</span>
+        </button>
+        <button class="tab" data-tab="skills" title="Skills">
+          <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.6 1.4L21 19l-1.4.6L19 21l-.6-1.4L17 19l1.4-.6z"/></svg>
+          <span class="tab-label">Skills</span>
+        </button>
       </div>
+      <!-- Full window: the History panel, beside Models in the rail. -->
+      <button id="rail-history" class="rail-btn window-only" type="button" title="Query history" aria-label="Query history" aria-pressed="false">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+      </button>
 
       <!-- One pill in full-window mode (vault · user); both wrappers are
            display:contents in the overlay, so its layout is unchanged. -->
@@ -35,9 +54,6 @@
       <div id="topbar-chip-slot" class="topbar-chip-slot"></div>
       <span class="topbar-sep topbar-sep-chips window-only"></span>
 
-      <button id="history-btn" class="topbar-icon hidden" title="Query history">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-      </button>
       <button id="whoami-btn" class="topbar-icon hidden" title="User info">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0,-4-4H8a4 4 0 0 0,-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
       </button>
@@ -56,7 +72,8 @@
       </button>
     </div>
 
-    <!-- Who Am I popover — one panel: session identity strip over AI access -->
+    <!-- Who Am I popover — the session identity strip. AI access moved to the
+         Skills tab. -->
     <div id="whoami-popover" class="whoami-popover hidden">
       <!-- #user-details is injected by popup.js, so the close button is a
            sibling rather than a child — an innerHTML write would remove it. -->
@@ -64,53 +81,6 @@
         <div id="user-details" class="whoami-identity-main"></div>
         <button id="whoami-close" class="whoami-close" type="button" title="Close">&times;</button>
       </div>
-
-      <!-- AI access: provider, key, one save-and-verify action, persistent status -->
-      <div class="whoami-body">
-        <div class="whoami-section">AI access</div>
-
-        <div id="ai-provider" class="ai-tiles">
-          <button class="ai-tile active" data-provider="anthropic">Anthropic</button>
-          <button class="ai-tile" data-provider="openai">OpenAI</button>
-          <button class="ai-tile" data-provider="gemini">Gemini</button>
-        </div>
-
-        <div class="ai-field">
-          <div class="ai-field-label">API key</div>
-          <div class="ai-key-field">
-            <input type="password" id="ai-key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
-            <button id="ai-key-reveal" class="ai-key-reveal" type="button">show</button>
-          </div>
-        </div>
-
-        <div class="ai-actions">
-          <button id="ai-key-save" class="ai-btn ai-btn-primary">Save &amp; verify</button>
-          <button id="ai-key-clear" class="ai-btn ai-btn-soft">Remove</button>
-        </div>
-
-        <div id="ai-key-status" class="ai-status none">
-          <span class="ai-status-dot"></span>
-          <div class="ai-status-copy">
-            <div id="ai-status-title" class="ai-status-title"></div>
-            <div id="ai-status-note" class="ai-status-note"></div>
-          </div>
-        </div>
-
-        <!-- Served by GitHub Pages from this repo's privacy.html. The Chrome Web
-             Store listing must point at the same URL; reviewers compare them. -->
-        <a id="privacy-link" class="whoami-privacy"
-           href="https://escadesupremo.github.io/vault-dweller-extension/privacy.html"
-           target="_blank" rel="noopener noreferrer">Privacy policy &#8599;</a>
-      </div>
-    </div>
-
-    <!-- History popover -->
-    <div id="history-popover" class="history-popover hidden">
-      <div class="popover-header">
-        <span>Query History</span>
-        <button id="clear-history-btn" class="btn btn-small btn-text">Clear</button>
-      </div>
-      <div id="history-list"></div>
     </div>
 
     <div id="connection-panel" class="hidden"></div>
@@ -121,31 +91,37 @@
       <!-- Query Tab -->
       <div id="tab-query" class="tab-content active">
         <div class="card query-card">
-          <!-- Full-window only: one editor, several saved queries. -->
-          <div id="query-tabs" class="query-tabs window-only" role="tablist" aria-label="Query tabs"></div>
+          <!-- Full-window only: one editor, several saved queries. popup.js
+               puts the Values setting at the strip's far end. -->
+          <div id="query-tabbar" class="query-tabbar window-only">
+            <div id="query-tabs" class="query-tabs" role="tablist" aria-label="Query tabs"></div>
+          </div>
           <div id="operator-bar" class="operator-bar">
-            <button class="op-chip" data-op="WHERE" title="Insert WHERE clause">WHERE</button>
-            <button class="op-chip" data-op="AND" title="Insert AND">AND</button>
-            <button class="op-chip" data-op="CONTAINS" title="Insert CONTAINS ('value')">CONTAINS</button>
-            <button class="op-chip" data-op="LIKE" title="Insert LIKE 'pattern'">LIKE</button>
-            <button class="op-chip" data-op="EQ" title="Insert = 'value'">=</button>
-            <div class="date-chip-wrap">
-              <button id="date-chip" class="op-chip" aria-haspopup="true" aria-expanded="false" title="Insert a date literal relative to today">DATE ▾</button>
-              <div id="date-menu" class="date-menu hidden">
-                <button class="date-menu-item" data-days="30">Last 30 days</button>
-                <button class="date-menu-item" data-days="90">Last 90 days</button>
-                <button class="date-menu-item" data-days="180">Last 180 days</button>
-                <button class="date-menu-item" data-days="365">Last 365 days</button>
-                <div class="date-menu-sep"></div>
-                <div class="date-menu-custom">
-                  <span>Last</span>
-                  <input type="number" id="date-years" min="1" max="99" step="1" value="2" />
-                  <span>years</span>
-                  <button id="date-years-go" class="date-menu-go">Insert</button>
-                </div>
-                <div id="date-preview" class="date-preview"></div>
-              </div>
+            <!-- INSERT slides the helper chips out inside this row; while they're
+                 out the row's other chips step aside. Each chip inserts at the
+                 cursor and closes the row again. -->
+            <button id="insert-chip" class="op-chip insert-chip" type="button" aria-expanded="false" aria-controls="insert-row" title="Insert VQL at the cursor">INSERT <svg class="insert-caret" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+            <div id="insert-row" class="insert-row" role="group" aria-label="Insert at the cursor" hidden>
+              <button class="op-chip" type="button" data-op="WHERE" title="WHERE: filter the records">WHERE</button>
+              <button class="op-chip" type="button" data-op="AND" title="AND: add another condition">AND</button>
+              <button class="op-chip" type="button" data-op="EQ" title="= '': equals a value">=</button>
+              <button class="op-chip" type="button" data-op="CONTAINS" title="CONTAINS (''): any value in a list">CONTAINS</button>
+              <button class="op-chip" type="button" data-op="LIKE" title="LIKE '': a pattern, % as the wildcard">LIKE</button>
+              <span class="insert-sep" aria-hidden="true"></span>
+              <span class="insert-word" aria-hidden="true">Last</span>
+              <button class="op-chip insert-num" type="button" data-days="30" title="The date 30 days ago, midnight UTC" aria-label="Last 30 days">30</button>
+              <button class="op-chip insert-num" type="button" data-days="90" title="The date 90 days ago, midnight UTC" aria-label="Last 90 days">90</button>
+              <button class="op-chip insert-num" type="button" data-days="365" title="The date 365 days ago, midnight UTC" aria-label="Last 365 days">365</button>
+              <span class="insert-word" aria-hidden="true">days</span>
             </div>
+            <!-- Field Names / Field Values: one chip that names the setting in
+                 force and flips it. It decides how picklist, lifecycle state and
+                 type values come back, so it changes the results, not the query
+                 text; popup.js keeps its label and tooltip current. -->
+            <button id="value-field" class="op-chip value-chip" type="button">
+              <span id="value-chip-label">FIELD NAMES</span>
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h13"/><path d="m17 20 4-4-4-4"/><path d="M21 16H8"/></svg>
+            </button>
             <div id="chip-group" class="chip-group">
               <button id="model-chip" class="model-chip" title="Load data model — enables autocomplete">
                 <span class="model-chip-dot"></span>
@@ -162,7 +138,7 @@
                  popup.js, so the overlay keeps them under the editor. -->
             <div id="editor-tools" class="editor-tools window-only">
               <button id="format-btn" class="tool-btn" type="button" title="Reflow the query one clause per line and upper-case keywords">Format</button>
-              <label class="limit-field" title="Most rows to fetch when the query has no LIMIT of its own">Limit
+              <label class="limit-field" title="Most rows to fetch when the query has no MAXROWS of its own">Limit
                 <select id="limit-select">
                   <option value="100">100</option>
                   <option value="500">500</option>
@@ -187,6 +163,23 @@
               ></textarea>
             </div>
             <div id="autocomplete-dropdown" class="autocomplete-dropdown hidden"></div>
+            <!-- Query history, pinned to the editor's corner where a code block
+                 keeps Copy. Label and ↓ hint show while the editor is empty,
+                 which is when ↓ steps back through past queries; with text in
+                 it the pill shrinks to its icon. -->
+            <button id="history-btn" class="history-corner" type="button" title="Query history"
+                    aria-haspopup="true" aria-expanded="false" aria-controls="history-popover">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+              <span class="history-corner-label">History</span>
+              <kbd class="history-corner-key" title="↓ in an empty editor steps through past queries">↓</kbd>
+            </button>
+            <div id="history-popover" class="history-popover hidden">
+              <div class="popover-header">
+                <span>Query History</span>
+                <button id="clear-history-btn" class="btn btn-small btn-text">Clear</button>
+              </div>
+              <div id="history-list"></div>
+            </div>
           </div>
           <div class="query-actions">
             <button id="run-btn" class="btn btn-primary" title="Runs the query and fetches ALL pages concurrently. For stable paging on large sets, include an ORDER BY.">Run Query</button>
@@ -195,6 +188,11 @@
             <span id="query-time" class="query-meta"></span>
           </div>
         </div>
+
+        <!-- Full window: drag to share the height between editor and results;
+             double-click to let the editor size itself again. -->
+        <div id="split-handle" class="split-handle window-only" role="separator" aria-orientation="horizontal"
+             aria-label="Resize the editor" tabindex="0" title="Drag to resize · double-click to reset"></div>
 
         <div id="results-panel" class="results-panel">
           <!-- The controls only show once there are rows (.has-results); in
@@ -234,10 +232,13 @@
 
       </div>
 
-      <!-- Inspector — full-window only, beside the Query tab. -->
-      <aside id="inspector" class="inspector window-only" aria-label="Inspector">
+      <!-- Inspector — full-window only: a drawer beside the results that opens
+           when a row is picked and closes with its × (or Escape). -->
+      <aside id="inspector" class="inspector window-only" aria-label="Selected row">
         <section class="insp-row">
-          <div class="insp-label">Selected row</div>
+          <div class="insp-label insp-label-row">Selected row
+            <button id="insp-close" class="insp-close" type="button" title="Close (Esc)" aria-label="Close the selected row">&times;</button>
+          </div>
           <div id="insp-empty" class="insp-empty">Select a row in the results to see every field it returned.</div>
           <div id="insp-body" class="insp-body hidden">
             <div id="insp-title" class="insp-title"></div>
@@ -248,7 +249,15 @@
             </div>
           </div>
         </section>
-        <div class="insp-label insp-label-recent">Recent queries</div>
+      </aside>
+
+      <!-- History panel — full-window only, opened from the rail in the data
+           model's place. -->
+      <aside id="explorer-history" class="explorer-history window-only" aria-label="Query history">
+        <div class="eh-head">
+          <span class="eh-title">History</span>
+          <button id="eh-clear" class="eh-clear" type="button">Clear</button>
+        </div>
         <div id="recent-list" class="recent-list"></div>
       </aside>
 
@@ -270,20 +279,25 @@
             <kbd class="dm-search-key window-only" title="Press / to search">/</kbd>
           </div>
 
-          <div id="dm-filters" class="dm-filters hidden">
-            <button class="dm-filter active" data-filter="fields">Fields <span id="dm-n-fields">0</span></button>
-            <button class="dm-filter" data-filter="objects">Objects <span id="dm-n-objects">0</span></button>
-            <span class="dm-groupnote">by object</span>
+          <!-- The everyday objects, plus the query's and recent picks; popup.js
+               fills it. Hidden while searching. -->
+          <div id="dm-objects" class="dm-objects" role="group" aria-label="Objects"></div>
+
+          <div id="dm-switch" class="dt-sort dm-switch hidden" role="group" aria-label="Show">
+            <button class="dt-sort-opt active" type="button" data-view="fields" aria-pressed="true">Fields <span class="dm-n"></span></button>
+            <button class="dt-sort-opt" type="button" data-view="out" aria-pressed="false">Lookups <span class="dm-n"></span></button>
+            <button class="dt-sort-opt" type="button" data-view="in" aria-pressed="false">Children <span class="dm-n"></span></button>
           </div>
 
           <div id="dm-tree" class="dm-tree"></div>
 
           <div id="dm-more" class="dm-more hidden">
-            <span id="dm-showing"></span>
-            <button id="dm-show-more" class="dm-show-more">Show more</button>
+            <span id="dm-showing" class="dm-showing"></span>
+            <button id="dm-show-more" class="dm-show-more hidden" type="button">Show more</button>
+            <button id="dm-insert-all" class="dm-show-more hidden" type="button"></button>
           </div>
 
-          <div class="dm-foot window-only">Click a field to insert it at the cursor · ⇧-click to add it to SELECT</div>
+          <div class="dm-foot">Click to insert at the cursor · ⇧-click adds to SELECT</div>
         </div>
       </div>
 
@@ -293,9 +307,18 @@
 
         <div id="dt-layout" class="dt-layout hidden">
           <div class="dt-tree-panel">
+            <!-- Sort on the left (records only once they're counted); the count
+                 itself on the right, as a chip with the load chips' states. -->
             <div class="dt-sortbar">
-              <button id="dt-count-btn" class="dt-count-btn">Count records</button>
-              <button id="dt-sort-dir" class="dt-sort-dir" title="Sort by record count" disabled>&#8597;</button>
+              <div class="dt-sort" role="group" aria-label="Sort document types by">
+                <button id="dt-sort-name" class="dt-sort-opt active" type="button" aria-pressed="true">Name</button>
+                <button id="dt-sort-dir" class="dt-sort-opt" type="button" aria-pressed="false" title="Count records first" disabled>Records<span id="dt-sort-arrow" class="dt-sort-arrow" aria-hidden="true"></span></button>
+              </div>
+              <button id="dt-count-btn" class="model-chip dt-count-chip" type="button">
+                <span class="model-chip-dot"></span>
+                <span class="model-chip-check">&#10003;</span>
+                <span id="dt-count-label" class="model-chip-label">COUNT RECORDS</span>
+              </button>
             </div>
             <div id="dt-tree" class="dt-tree"></div>
           </div>
@@ -311,39 +334,71 @@
         </div>
       </div>
 
-      <!-- Ask (Vault docs) Tab -->
-      <div id="tab-ask" class="tab-content">
-        <div id="ask-nokey" class="dm-empty">Add an API key under the <strong>user</strong> button to start.</div>
+      <!-- Skills Tab — skills run on the user's own AI key, so this is where it
+           is entered and checked. Two faces, switched by data-state: setting a
+           key up (none / checking / bad / replacing) and the verified key on
+           one line (ok). -->
+      <div id="tab-skills" class="tab-content">
+        <div id="ai-card" class="card ai-card" data-state="none">
+          <div class="ai-setup">
+            <div class="ai-title">Connect an AI provider</div>
+            <p class="ai-lede">Skills run on your own API key. It stays in this browser and goes only to the provider you pick.
+              <!-- Served by GitHub Pages from this repo's privacy.html. The
+                   Chrome Web Store listing must point at the same URL;
+                   reviewers compare them. -->
+              <a id="privacy-link" class="ai-privacy"
+                 href="https://escadesupremo.github.io/vault-dweller-extension/privacy.html"
+                 target="_blank" rel="noopener noreferrer">Privacy policy&nbsp;&#8599;</a></p>
 
-        <div id="ask-panel" class="ask-panel hidden">
-          <div class="ask-scope">
-            <span class="ask-scope-label">Scope</span>
-            <div class="ask-pill-wrap">
-              <button id="ask-platform" class="ask-pill" aria-haspopup="true" aria-expanded="false" title="Vault application family">
-                <span class="ask-pill-text">Platform</span><span class="ask-pill-caret">&#9662;</span>
-              </button>
-              <div id="ask-platform-menu" class="ask-menu hidden"></div>
+            <!-- Provider, key and the action on one line. -->
+            <div class="ai-row">
+              <div class="ai-key-field">
+                <!-- Provider marks from Simple Icons (CC0); the names stay on
+                     as tooltips and labels. -->
+                <div id="ai-provider" class="ai-provider" role="radiogroup" aria-label="AI provider">
+                  <button type="button" class="ai-prov active" data-provider="anthropic" role="radio" aria-checked="true" aria-label="Anthropic" title="Anthropic">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg>
+                  </button>
+                  <button type="button" class="ai-prov" data-provider="openai" role="radio" aria-checked="false" aria-label="OpenAI" title="OpenAI">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
+                  </button>
+                  <button type="button" class="ai-prov" data-provider="gemini" role="radio" aria-checked="false" aria-label="Gemini" title="Gemini">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg>
+                  </button>
+                </div>
+                <input type="password" id="ai-key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" aria-label="API key" />
+                <button id="ai-key-reveal" class="ai-key-reveal" type="button">show</button>
+              </div>
+              <button id="ai-key-save" class="ai-verify" type="button">Verify</button>
+              <button id="ai-key-cancel" class="ai-quiet" type="button" hidden>Cancel</button>
+              <button id="ai-key-drop" class="ai-quiet ai-quiet-danger" type="button" hidden>Remove</button>
             </div>
-            <div class="ask-pill-wrap">
-              <button id="ask-source" class="ask-pill" aria-haspopup="true" aria-expanded="false" title="Which documentation set to search">
-                <span class="ask-pill-text">API reference</span><span class="ask-pill-caret">&#9662;</span>
-              </button>
-              <div id="ask-source-menu" class="ask-menu hidden"></div>
-            </div>
-            <button id="ask-clear" class="ask-icon-btn" title="Start a new conversation">&times;</button>
+            <div id="ai-key-error" class="ai-error" role="alert"></div>
           </div>
 
-          <div id="ask-log" class="ask-log"></div>
-
-          <div class="ask-composer">
-            <div class="ask-field">
-              <textarea id="ask-input" rows="1" placeholder="Ask about the Vault API…" spellcheck="false"></textarea>
-              <button id="ask-send" class="ask-send" title="Send">&#8593;</button>
+          <div class="ai-connected">
+            <!-- The provider's mark, copied in by popup.js, with a green badge. -->
+            <span id="ai-conn-logo" class="ai-conn-logo" aria-hidden="true"></span>
+            <div class="ai-who">
+              <div id="ai-conn-name" class="ai-conn-name"></div>
+              <div id="ai-conn-meta" class="ai-conn-meta"></div>
             </div>
+            <button id="ai-key-replace" class="ai-outline" type="button">Replace key</button>
+            <button id="ai-key-clear" class="ai-quiet ai-quiet-danger" type="button">Remove</button>
           </div>
         </div>
       </div>
+
     </div>
+
+    <!-- Full window: the vault, the API version and the model loads, along the
+         bottom. popup.js moves the connection pill and the load chips in. -->
+    <footer id="statusbar" class="statusbar window-only">
+      <div id="status-left" class="status-left"></div>
+      <span id="status-api" class="status-api"></span>
+      <div class="status-spacer"></div>
+      <div id="status-right" class="status-right"></div>
+    </footer>
   </div>
 
   <script src="popup.js"></script>
