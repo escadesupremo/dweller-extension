@@ -1859,7 +1859,7 @@ body:not(.mode-window) #vql-input { padding-right: 36px; }
   flex-direction: column;
 }
 
-/* Doc Types list header: the sort on the left, the count on the right. */
+/* Doc Types list header: the count chip, on the right. */
 .dt-sortbar {
   display: flex;
   align-items: center;
@@ -1872,7 +1872,8 @@ body:not(.mode-window) #vql-input { padding-right: 36px; }
   z-index: 1;
 }
 
-/* Name | Records: the tab switcher's track and thumb, at list-header size. */
+/* A small pill switch: the tab switcher's track and thumb, at list-header
+   size. The data model's Fields | Lookups | Children uses it. */
 .dt-sort {
   display: flex;
   flex-shrink: 0;
@@ -1905,7 +1906,6 @@ body:not(.mode-window) #vql-input { padding-right: 36px; }
 }
 .dt-sort-opt:disabled { opacity: .45; cursor: default; }
 .dt-sort-opt:focus-visible { outline: 2px solid var(--accent-glow, rgba(192,138,46,.35)); outline-offset: 1px; }
-.dt-sort-arrow { font-family: var(--mono); }
 
 /* The count: a load chip (see .model-chip), pushed to the row's end. */
 .dt-count-chip { margin-left: auto; }

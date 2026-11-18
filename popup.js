@@ -3906,9 +3906,6 @@ const dtChipLabel = $("#dt-chip-label");
 const dtLayout = $("#dt-layout");
 const dtEmpty = $("#dt-empty");
 const dtCountBtn = $("#dt-count-btn");
-const dtSortDir = $("#dt-sort-dir");
-const dtSortName = $("#dt-sort-name");
-const dtSortArrow = $("#dt-sort-arrow");
 const dtCountLabel = $("#dt-count-label");
 const dtTree = $("#dt-tree");
 const dtBreadcrumb = $("#dt-breadcrumb");
@@ -3921,7 +3918,6 @@ const DT_BATCH = 5;          // concurrent type fetches
 let docTypes = [];
 let docTypesTime = null;     // when the types on screen were loaded or counted
 let dtSelected = null;
-let dtSortDirection = null; // null | "desc" | "asc"
 let dtCounting = false;
 let dtLoading = false;
 
@@ -4082,7 +4078,6 @@ function applyDocTypes(types, time) {
   dtFields.innerHTML = "";
   dtBreadcrumb.innerHTML = "";
   dtStats.classList.add("hidden");
-  if (!dtSortDirection && types.some((t) => t.docCount != null)) dtSortDirection = "desc";
   paintDtCountControls();
   renderDocTypeList();
   dtLayout.classList.remove("hidden");
@@ -4184,41 +4179,11 @@ function paintDtCountControls() {
   } else {
     applyChipState(dtCountBtn, dtCountLabel, "idle", DT_COUNT_LABELS);
   }
-  dtSortDir.disabled = counted === 0;
-  if (!counted) dtSortDirection = null;
-  paintDtSort();
-}
-
-// Name, or Records with an arrow for the direction.
-function paintDtSort() {
-  const byCount = !!dtSortDirection;
-  dtSortName.classList.toggle("active", !byCount);
-  dtSortName.setAttribute("aria-pressed", String(!byCount));
-  dtSortDir.classList.toggle("active", byCount);
-  dtSortDir.setAttribute("aria-pressed", String(byCount));
-  dtSortArrow.textContent = !byCount ? "" : dtSortDirection === "desc" ? " ↓" : " ↑";
-  dtSortDir.title = dtSortDir.disabled
-    ? "Count records first"
-    : !byCount
-      ? "Most records first"
-      : dtSortDirection === "desc"
-        ? "Most records first. Click for fewest first."
-        : "Fewest records first. Click for most first.";
 }
 
 function renderDocTypeList() {
-  // Record count descending puts the types people actually use at the top;
-  // A-Z is the predictable default.
-  // A-Z until counts exist and the arrow asks for a count order.
-  const ordered = [...docTypes].sort((a, b) => {
-    if (dtSortDirection) {
-      const av = a.docCount ?? -1;
-      const bv = b.docCount ?? -1;
-      const diff = dtSortDirection === "desc" ? bv - av : av - bv;
-      if (diff) return diff;
-    }
-    return a.label.localeCompare(b.label);
-  });
+  // A-Z, counted or not: the order never moves under you.
+  const ordered = [...docTypes].sort((a, b) => a.label.localeCompare(b.label));
 
   let html = "";
   for (const t of ordered) {
@@ -4280,21 +4245,6 @@ function compactCount(n) {
   return `${m < 10 ? m.toFixed(1).replace(/\.0$/, "") : Math.round(m)}M`;
 }
 
-// Records starts most-first; a second click flips it.
-dtSortDir.addEventListener("click", () => {
-  if (dtSortDir.disabled) return;
-  dtSortDirection = dtSortDirection === "desc" ? "asc" : "desc";
-  paintDtSort();
-  renderDocTypeList();
-});
-
-dtSortName.addEventListener("click", () => {
-  if (!dtSortDirection) return;
-  dtSortDirection = null;
-  paintDtSort();
-  renderDocTypeList();
-});
-
 // One button, one query per type: SELECT id FROM documents WHERE
 // TONAME(type__v) = '<name>'. By name, not label: labels are translated into
 // each user's language and can be renamed, which Veeva's VQL reference gives
@@ -4349,7 +4299,6 @@ async function countDocTypeRecords() {
 
     // Counts are worth keeping too: they cost one query per type.
     docTypesTime = new Date().toISOString();
-    if (!dtSortDirection) dtSortDirection = "desc";
     paintDtCountControls();
     renderDocTypeList();
     await saveDocTypes();
