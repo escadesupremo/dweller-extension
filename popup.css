@@ -1337,13 +1337,6 @@ body:not(.mode-window) #vql-input { padding-right: 36px; }
   gap: 8px;
 }
 
-.dm-head-logo {
-  width: 20px;
-  height: 20px;
-  border-radius: var(--radius-2xs);
-  flex-shrink: 0;
-}
-
 .dm-head-title {
   font-family: var(--display);
   font-size: 16px;
@@ -1448,6 +1441,46 @@ body:not(.mode-window) #vql-input { padding-right: 36px; }
 }
 
 .dm-ochip:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: 1px; }
+
+/* An object chip: the label picks it, its x takes it off the row. */
+.dm-ochip-obj { gap: 0; padding: 0 4px 0 0; }
+
+.dm-ochip-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding: 0 6px 0 10px;
+  border: 0;
+  border-radius: 999px 0 0 999px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dm-ochip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dm-ochip-x:hover { background: rgba(26,25,21,.08); color: var(--text); }
+.dm-ochip.on .dm-ochip-x { color: var(--accent); }
+.dm-ochip.on .dm-ochip-x:hover { background: rgba(122,85,16,.12); color: var(--accent-hover); }
+
+.dm-ochip-pick:focus-visible,
+.dm-ochip-x:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: 1px; }
 
 /* Fields | Lookups | Children: the Doc Types sort pill, sized to its labels. */
 .dm-switch { align-self: flex-start; }
@@ -1859,7 +1892,7 @@ body:not(.mode-window) #vql-input { padding-right: 36px; }
   flex-direction: column;
 }
 
-/* Doc Types list header: the count chip, on the right. */
+/* Doc Types list header: the title, and the count chip on the right. */
 .dt-sortbar {
   display: flex;
   align-items: center;
@@ -1906,6 +1939,18 @@ body:not(.mode-window) #vql-input { padding-right: 36px; }
 }
 .dt-sort-opt:disabled { opacity: .45; cursor: default; }
 .dt-sort-opt:focus-visible { outline: 2px solid var(--accent-glow, rgba(192,138,46,.35)); outline-offset: 1px; }
+
+/* Set like the Data model's title. */
+.dt-list-title {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+body.mode-window .dt-list-title { font-size: 17px; }
 
 /* The count: a load chip (see .model-chip), pushed to the row's end. */
 .dt-count-chip { margin-left: auto; }
@@ -2758,7 +2803,6 @@ body.mode-window .dm-head {
 
 body.mode-window .dm-head-title { white-space: nowrap; }
 
-body.mode-window .dm-head-logo { display: none; }
 body.mode-window .dm-head-title { font-size: 18px; }
 
 body.mode-window .dm-counts {

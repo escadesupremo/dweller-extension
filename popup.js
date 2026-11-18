@@ -523,6 +523,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // ===================== PER-INSTANCE DATA MODEL =====================
 async function loadDataModelForDomain(domain) {
   dmResetView();
+  await loadDmChips(domain);
   forgetLiveObjects();
   await loadFieldStatsForDomain(domain);
   const entry = await readVaultCache("dataModels", domain);
@@ -2374,12 +2375,16 @@ const DM_DEFAULT_OBJECTS = [
   "activity",
 ];
 // Chips beyond those, brought in by the query or a pick, oldest dropped first.
+// Every chip has an x: an everyday one taken off stays off until it is opened
+// again. Both lists are kept per vault.
 const DM_EXTRA_CHIPS = 4;
+const dmChipsKey = (domain) => `dmChips:${domain}`;
 
 let dmSelected = null;    // the object on show
 let dmView = "fields";    // fields | out (lookups) | in (child relationships)
 let dmAllObjects = false; // the list of every object is showing instead
 let dmExtra = [];         // chip objects beyond the defaults
+let dmHidden = [];        // everyday objects taken off the row
 let dmFromSeen = null;    // the FROM object the panel last followed
 let dmShown = DM_PAGE;
 let dmLastKey = "";       // what the list showed last, to keep its scroll
@@ -2389,6 +2394,7 @@ function dmResetView() {
   dmView = "fields";
   dmAllObjects = false;
   dmExtra = [];
+  dmHidden = [];
   dmFromSeen = null;
   dmShown = DM_PAGE;
   dmLastKey = "";
@@ -2427,7 +2433,8 @@ function matchesObject(o, filter) {
   return o.name.toLowerCase().includes(filter) || o.label.toLowerCase().includes(filter);
 }
 
-function dmFeatured() {
+// The everyday objects this vault has, and those of them still on the row.
+function dmDefaults() {
   const out = [];
   for (const want of DM_DEFAULT_OBJECTS) {
     const o = modelObject(want);
@@ -2436,18 +2443,59 @@ function dmFeatured() {
   return out;
 }
 
+function dmFeatured() {
+  return dmDefaults().filter((o) => !dmHidden.includes(o.name));
+}
+
 // What the editor is querying, else what last ran.
 function dmQueryObject() {
   return modelObject(vqlShape(vqlInput.value).target) || modelObject(vqlShape(lastRunQuery).target);
 }
 
+async function loadDmChips(domain) {
+  if (!domain) return;
+  const key = dmChipsKey(domain);
+  const saved = (await chrome.storage.local.get(key))[key] || {};
+  const names = (list) => (Array.isArray(list) ? list.filter((n) => typeof n === "string") : []);
+  dmExtra = names(saved.recent).slice(-DM_EXTRA_CHIPS);
+  dmHidden = names(saved.hidden);
+}
+
+function saveDmChips() {
+  if (state.domain) chrome.storage.local.set({ [dmChipsKey(state.domain)]: { recent: dmExtra, hidden: dmHidden } });
+}
+
 function dmPin(name) {
-  if (dmFeatured().some((o) => o.name === name)) return;
+  if (dmDefaults().some((o) => o.name === name)) {
+    // Opening an everyday object puts its chip back.
+    if (!dmHidden.includes(name)) return;
+    dmHidden = dmHidden.filter((n) => n !== name);
+    saveDmChips();
+    return;
+  }
+  if (dmExtra[dmExtra.length - 1] === name) return;
   dmExtra = dmExtra.filter((n) => n !== name);
   dmExtra.push(name);
   while (dmExtra.length > DM_EXTRA_CHIPS) {
     dmExtra.splice(dmExtra.findIndex((n) => n !== dmSelected), 1);
   }
+  saveDmChips();
+}
+
+// The x on a chip. Taking off the object on show moves to the first chip left,
+// else the list of all objects.
+function dmUnpin(name) {
+  if (dmDefaults().some((o) => o.name === name)) {
+    if (!dmHidden.includes(name)) dmHidden.push(name);
+  } else {
+    dmExtra = dmExtra.filter((n) => n !== name);
+  }
+  saveDmChips();
+  if (dmSelected !== name) return;
+  const next = dmFeatured()[0] || modelObject(dmExtra[dmExtra.length - 1]);
+  dmSelected = next ? next.name : null;
+  dmView = "fields";
+  dmAllObjects = !next;
 }
 
 function dmSelect(name, view = "fields") {
@@ -2590,9 +2638,11 @@ function dmChipsHtml() {
   for (const o of objs) {
     const on = !dmAllObjects && o.name === dmSelected;
     h +=
-      `<button type="button" class="dm-ochip${on ? " on" : ""}" data-pick="${esc(o.name)}" ` +
-      `aria-pressed="${on}" title="${esc(o.name)}">${esc(o.label || o.name)}` +
-      ` <span class="dm-n">${(o.fields?.length || 0).toLocaleString()}</span></button>`;
+      `<span class="dm-ochip dm-ochip-obj${on ? " on" : ""}">` +
+      `<button type="button" class="dm-ochip-pick" data-pick="${esc(o.name)}" aria-pressed="${on}" title="${esc(o.name)}">` +
+      `${esc(o.label || o.name)} <span class="dm-n">${(o.fields?.length || 0).toLocaleString()}</span></button>` +
+      `<button type="button" class="dm-ochip-x" data-unpin="${esc(o.name)}" title="Remove from the row" ` +
+      `aria-label="${esc(`Remove ${o.label || o.name}`)}">&times;</button></span>`;
   }
   const total = state.dataModel.objects.length;
   h +=
@@ -2771,7 +2821,14 @@ function dmRefocus(e, sel) {
 }
 
 dmObjects.addEventListener("click", (e) => {
-  const chip = e.target.closest(".dm-ochip");
+  const x = e.target.closest("[data-unpin]");
+  if (x) {
+    dmUnpin(x.dataset.unpin);
+    renderDataModelTree("");
+    dmRefocus(e, "#dm-objects .dm-ochip-all");
+    return;
+  }
+  const chip = e.target.closest("[data-pick], [data-all]");
   if (!chip) return;
   if (chip.dataset.all) {
     // A second click goes back to the object on show.
@@ -2781,7 +2838,7 @@ dmObjects.addEventListener("click", (e) => {
     dmSelect(chip.dataset.pick, same ? dmView : "fields");
   }
   renderDataModelTree("");
-  dmRefocus(e, chip.dataset.all ? ".dm-ochip-all" : `.dm-ochip[data-pick="${CSS.escape(chip.dataset.pick)}"]`);
+  dmRefocus(e, chip.dataset.all ? "#dm-objects .dm-ochip-all" : `#dm-objects [data-pick="${CSS.escape(chip.dataset.pick)}"]`);
 });
 
 dmSwitch.addEventListener("click", (e) => {
@@ -2801,7 +2858,7 @@ dmTree.addEventListener("click", (e) => {
       dmShown = DM_PAGE;
     }
     renderDataModelTree("");
-    dmRefocus(e, `.dm-ochip[data-pick="${CSS.escape(pick.dataset.pick)}"]`);
+    dmRefocus(e, `#dm-objects [data-pick="${CSS.escape(pick.dataset.pick)}"]`);
     return;
   }
 
@@ -4182,8 +4239,11 @@ function paintDtCountControls() {
 }
 
 function renderDocTypeList() {
-  // A-Z, counted or not: the order never moves under you.
-  const ordered = [...docTypes].sort((a, b) => a.label.localeCompare(b.label));
+  // Most records first once counted (types not counted go last), A-Z for ties
+  // and before any count. No toggle: one fixed order.
+  const ordered = [...docTypes].sort(
+    (a, b) => (b.docCount ?? -1) - (a.docCount ?? -1) || a.label.localeCompare(b.label)
+  );
 
   let html = "";
   for (const t of ordered) {
