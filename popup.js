@@ -17,11 +17,6 @@ const vqlPanel = $("#vql-panel");
 const statusPill = $("#status-pill");
 const statusText = $("#status-text");
 const domainInput = $("#vault-domain");
-const disconnectBtn = $("#disconnect-btn");
-const whoamiBtn = $("#whoami-btn");
-const whoamiPopover = $("#whoami-popover");
-const whoamiClose = $("#whoami-close");
-const userDetails = $("#user-details");
 const aiCard = $("#ai-card");
 const aiProviderGroup = $("#ai-provider");
 const aiConnLogo = $("#ai-conn-logo");
@@ -550,118 +545,34 @@ function setStatus(type, text) {
   }
 }
 
-// Who, where, and with what rights — the three things worth knowing at a glance.
-// user_name__v is the login and is usually the same string as user_email__v, so
-// showing both said one thing twice; the rest (vault id, the duplicate address)
-// moved into the tooltip rather than costing a row each.
+// The signed-in user, shown in the full window's status bar: the address, with
+// the name and security profile in its tooltip.
 function showUserInfo(data) {
   const u = data.users?.[0]?.user || data;
   const name = [u.user_first_name__v, u.user_last_name__v].filter(Boolean).join(" ");
-  const login = u.user_name__v || u.user_email__v || "";
-  const primary = name || login;
-
-  if (!primary) {
-    // Unexpected payload shape — show it rather than an empty panel.
-    userDetails.innerHTML = `<div class="whoami-raw">${esc(
-      JSON.stringify(data).slice(0, 200)
-    )}</div>`;
-  } else {
-    const secondary = login && login !== primary ? login : "";
-    const chips = [u.security_profile__v, state.domain, state.apiVersion && `API ${state.apiVersion}`].filter(Boolean);
-    const tip = [
-      name && login ? `${name} · ${login}` : primary,
-      u.user_email__v && u.user_email__v !== login ? u.user_email__v : "",
-      u.vault_id__v ? `Vault ID ${u.vault_id__v}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    userDetails.innerHTML =
-      `<div class="whoami-who" title="${esc(tip)}">` +
-      `<div class="whoami-name">${esc(primary)}</div>` +
-      (secondary ? `<div class="whoami-login">${esc(secondary)}</div>` : "") +
-      "</div>" +
-      (chips.length
-        ? `<div class="whoami-chips">${chips
-            .map((c) => `<span class="whoami-chip">${esc(c)}</span>`)
-            .join("")}</div>`
-        : "");
-  }
-  whoamiBtn.classList.remove("hidden");
-
-  // Only the full window shows this; the pill has room for the address, and the
-  // security profile rides along in the tooltip.
-  const who = [u.user_email__v || u.user_name__v, u.security_profile__v].filter(Boolean);
-  topbarUser.textContent = who[0] || "";
-  topbarUser.title = who.join(" · ");
+  const login = u.user_email__v || u.user_name__v || "";
+  topbarUser.textContent = login || name;
+  topbarUser.title = [name, login, u.security_profile__v].filter(Boolean).join(" · ");
 }
 
 function showVqlPanel() {
   connectionPanel.classList.add("hidden");
   vqlPanel.classList.remove("hidden");
-  disconnectBtn.classList.remove("hidden");
   vqlInput.focus();
   paintTabThumb();
   // The editor was sized while hidden, when it measured nothing.
   if (WINDOW_MODE) paintEditor();
 }
 
-// ===================== DISCONNECT =====================
-disconnectBtn.addEventListener("click", () => {
-  state.sessionId = null;
-  state.domain = null;
-  state.user = null;
-  state.dataModel = null;
-  state.apiVersion = null;
-  vqlPanel.classList.add("hidden");
-  connectionPanel.classList.remove("hidden");
-  disconnectBtn.classList.add("hidden");
-  closeHistory();
-  whoamiBtn.classList.add("hidden");
-  whoamiPopover.classList.add("hidden");
-  setStatus("disconnected", "Disconnected");
-  topbarUser.textContent = "";
-  dmCounts.textContent = "";
-  setChipState("idle");
-  dmPanel.classList.add("hidden");
-  dmEmptyState.classList.remove("hidden");
-  dmTree.innerHTML = "";
-  dmResetView();
-  forgetLiveObjects();
-  fieldStats = {};
-  fieldStatsFailed.clear();
-  clearTimeout(fieldStatsTimer);
-  clearDocTypes();
-  dataModelTime = null;
-  resultsContainer.innerHTML = "";
-  setResultsShown(false);
-  queryTime.textContent = "";
-  lastResultData = null;
-  resultValues = null;
-  lastRunQuery = "";
-  resultMeta = null;
-  resultsCount.title = "";
-  resetResultsView();
-});
-
-// Popover toggles — close others when opening one
+// The history list is the one popover left.
 function closeHistory() {
   historyPopover.classList.add("hidden");
   historyBtn.setAttribute("aria-expanded", "false");
 }
 
 function closeAllPopovers() {
-  whoamiPopover.classList.add("hidden");
   closeHistory();
 }
-
-whoamiBtn.addEventListener("click", () => {
-  const wasHidden = whoamiPopover.classList.contains("hidden");
-  closeAllPopovers();
-  if (wasHidden) whoamiPopover.classList.remove("hidden");
-});
-
-whoamiClose.addEventListener("click", closeAllPopovers);
 
 // The pill in the editor's corner drops the list under itself. It sits inside
 // the editor's wrapper, so autocomplete doesn't close by itself; close it here.
@@ -2324,7 +2235,12 @@ function ensureTargetList() {
 // A new vault, or a disconnect: nothing looked up for the last one carries over.
 function forgetLiveObjects() {
   picklistNames.clear();
+  picklistNamePending.clear();
   picklistValueSets.clear();
+  objectRecordSets.clear();
+  dtSectionLabels = null;
+  dtPickResults.clear();
+  dtFresh.clear();
   liveObjects.clear();
   liveObjectsPending.clear();
   liveTargets = null;
@@ -3967,8 +3883,6 @@ const dtCountLabel = $("#dt-count-label");
 const dtTree = $("#dt-tree");
 const dtBreadcrumb = $("#dt-breadcrumb");
 const dtFields = $("#dt-fields");
-const dtStats = $("#dt-stats");
-const dtFieldCount = $("#dt-field-count");
 
 const DT_BATCH = 5;          // concurrent type fetches
 
@@ -4040,7 +3954,6 @@ async function loadDocTypes() {
   dtTree.innerHTML = '<div class="dt-children-loading"><span class="spinner"></span> Loading…</div>';
   dtFields.innerHTML = "";
   dtBreadcrumb.innerHTML = "";
-  dtStats.classList.add("hidden");
   dtSelected = null;
 
   try {
@@ -4134,7 +4047,6 @@ function applyDocTypes(types, time) {
   dtSelected = null;
   dtFields.innerHTML = "";
   dtBreadcrumb.innerHTML = "";
-  dtStats.classList.add("hidden");
   paintDtCountControls();
   renderDocTypeList();
   dtLayout.classList.remove("hidden");
@@ -4155,6 +4067,10 @@ const DT_KEEP_PROPS = [
   // A picklist field's values as this type lists them: the fallback when
   // the picklist API can't be asked.
   "entryNames", "entryLabels", "picklist",
+  // The object a reference field points at, for listing its records.
+  "objectType",
+  // Who fills a field: Vault's own, pre-filled, or queryable at all.
+  "systemAttribute", "defaultValue", "queryable", "setOnCreateOnly",
 ];
 
 function slimDocType(t) {
@@ -4272,7 +4188,7 @@ function renderDocTypeList() {
     html += `<div class="dt-node-header" title="${esc(tip)}">`;
     html += `<span class="dt-node-icon">&#128196;</span>`;
     html += `<span class="dt-node-label">${esc(t.label)}</span>`;
-    html += `<span class="dt-node-sublabel">${esc(t.name)}</span>`;
+    if (t.docCount == null && !t.countError) html += `<span class="dt-node-sublabel">${esc(t.name)}</span>`;
     html += cell;
     html += `</div></div>`;
   }
@@ -4381,6 +4297,7 @@ dtTree.addEventListener("click", (e) => {
   header.classList.add("selected");
   dtSelected = type;
   showDocTypeFields(type);
+  refreshDocType(type);
 });
 
 // ---- layout placement ------------------------------------------------------
@@ -4432,95 +4349,287 @@ function splitByLayout(props) {
 
 // Not fieldRowHtml: that is the data model's row builder, and a second
 // top-level function of the same name silently replaces the first everywhere.
+// The layout list: plain fields stay quiet, picklists stand out with a preview
+// of their values and a count; clicking one opens its values under the row.
+function dtTypeLabel(p) {
+  const t = String(p.type || "").toLowerCase();
+  return t === "objectreference" ? "object" : t;
+}
+
+// Who fills a field, read from its definition alone: Vault (a system field
+// the user can't edit, a formula or lookup, or read-only for this user),
+// Vault first (a default value people may change), or people. Read-only can
+// also be this user's access, so the tooltip says why.
+const DT_FILTERS = { all: "All Fields", user: "User Fields" };
+
+function dtFillTag(p) {
+  const t = String(p.type || "");
+  if (/^(formula|lookup)$/i.test(t)) return { tag: "system", why: `${t.toLowerCase()} field: Vault works it out` };
+  if (p.systemAttribute === true && p.editable === false) return { tag: "system", why: "Vault manages this field" };
+  if (p.editable === false) return { tag: "system", why: "read-only for you: set by Vault, a rule or an integration — or your access" };
+  const def = Array.isArray(p.defaultValue) ? p.defaultValue.join(", ") : p.defaultValue;
+  if (def != null && def !== "") return { tag: "default", why: `Vault pre-fills it (${def}); people may change it` };
+  return { tag: "people", why: p.systemAttribute ? "a standard field people fill in" : "people fill this in" };
+}
+
 function dtFieldRowHtml(p) {
-  const pick = isPicklistProp(p);
-  let h = pick
-    ? `<div class="dt-field-row dt-pick" data-fname="${esc(p.name || "")}" role="button" tabindex="0" aria-expanded="false" title="Show this picklist's values">`
-    : `<div class="dt-field-row" data-fname="${esc(p.name || "")}">`;
-  h += `<span class="dt-field-name" title="${esc(p.name || "")}">${esc(p.name || "")}</span>`;
-  h += `<span class="dt-field-label">${esc(p.label || "")}</span>`;
-  h += `<span class="dt-field-badges">`;
-  if (p.required === true) h += '<span class="dt-badge req">REQ</span>';
-  if (p.editable === false) h += '<span class="dt-badge locked">READ-ONLY</span>';
-  if (p.repeating === true) h += '<span class="dt-badge rep">MULTI</span>';
-  if (p.hidden === true) h += '<span class="dt-badge locked">HIDDEN</span>';
-  if (p.scope) h += `<span class="dt-badge scope">${esc(p.scope)}</span>`;
-  if (p.type) h += `<span class="dt-badge type-badge">${esc(p.type)}${pick ? ' <span aria-hidden="true">▾</span>' : ""}</span>`;
-  h += `</span></div>`;
-  return h;
+  const name = esc(p.name || "");
+  const req = p.required === true ? '<span class="dt-field-req" aria-label="required">*</span>' : "";
+  const fill = dtFillTag(p);
+  const group = fill.tag === "system" ? "system" : "user";
+  const tip = [p.name, dtTypeLabel(p), p.required ? "required" : "", p.editable === false ? "read-only" : "",
+    p.repeating ? "several values" : "", p.hidden ? "hidden" : "", p.scope || "", fill.why].filter(Boolean).join(" · ");
+  if (isValueListProp(p)) {
+    const ref = refObjectOf(p);
+    return (
+      `<div class="dt-field-row dt-pick${ref ? " dt-ref" : ""}" data-fname="${name}" data-tag="${group}" role="button" tabindex="0" aria-expanded="false" ` +
+      `title="${esc(tip)}${ref ? ` → ${ref}` : ""} — click to show its ${ref ? "records" : "values"}">` +
+      `<span class="dt-field-label">${esc(p.label || p.name || "")}</span>${req}` +
+      `<span class="dt-field-name">${name}</span>` +
+      `<span class="dt-pick-preview"></span>` +
+      `<span class="dt-pick-count"><span class="dt-pick-n"></span>` +
+      '<svg class="dt-pick-caret" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></div>'
+    );
+  }
+  return (
+    `<div class="dt-field-row" data-fname="${name}" data-tag="${group}" title="${esc(tip)}">` +
+    `<span class="dt-field-label">${esc(p.label || p.name || "")}</span>${req}` +
+    `<span class="dt-field-name">${name}</span></div>`
+  );
 }
 
 // ---- Picklist values ----------------------------------------------------------
-// A picklist field opens its values under its row. They come from Retrieve
-// Picklist Values (GET /objects/picklists/{name}). Document fields don't name
-// their picklist, so a one-row describe query asks for it first; if either
-// call fails, the entries this type's own metadata listed are shown instead.
-const picklistNames = new Map();   // document field -> picklist name, or null
-const picklistValueSets = new Map(); // picklist -> [{ name, label }], or null
+// A picklist's values come from the type's own metadata (entryNames and
+// entryLabels) when it carries them, else from Retrieve Picklist Values
+// (GET /objects/picklists/{name}). Document fields don't name their picklist,
+// so one describe query names every picklist on the type first. Each picklist
+// on screen is loaded in the background, a few at a time, so its row can show
+// a count and a preview before it is opened.
+const picklistNames = new Map();     // document field -> picklist name, or null
+const picklistValueSets = new Map(); // picklist -> Promise of { values, controlling } or null
+const dtPickResults = new Map();     // "type|field" -> { values, source, controlling }
 const DT_VALUES_FILTER_AT = 12;
+const DT_PICK_CONCURRENCY = 3;
 
 function isPicklistProp(p) {
   return /picklist/i.test(String(p?.type || ""));
 }
 
-async function picklistNameFor(field) {
-  if (picklistNames.has(field)) return picklistNames.get(field);
-  let name = null;
-  if (/^[a-z_][a-z0-9_]*$/i.test(field)) {
-    const res = await apiCall(
-      "/query", "POST",
-      `q=${encodeURIComponent(`SELECT ${field} FROM documents MAXROWS 1`)}`,
-      { "X-VaultAPI-DescribeQuery": "true" }
-    );
-    if (apiOk(res)) name = res.data?.queryDescribe?.fields?.find((f) => f.name === field)?.picklist || null;
+// The object a reference field points at, as VQL names it. Document fields
+// say "User" and "Group" for the system objects.
+function refObjectOf(p) {
+  if (!/objectreference/i.test(String(p?.type || ""))) return null;
+  const t = String(p.objectType || "").trim().toLowerCase();
+  if (!t) return null;
+  const name = { user: "user__sys", group: "group__sys" }[t] || t;
+  return /^[a-z_][a-z0-9_]*$/i.test(name) ? name : null;
+}
+
+function isValueListProp(p) {
+  return isPicklistProp(p) || !!refObjectOf(p);
+}
+
+// A reference field's choices are its object's records: one query per object,
+// shared by every field and type pointing at it, A-Z by name, capped. Status
+// marks the inactive ones; an object without status__v is asked again without.
+const DT_RECORD_LIMIT = 500;
+const objectRecordSets = new Map(); // object -> Promise of { values, total } or null
+
+async function dtQueryRows(q) {
+  const res = await apiCall("/query", "POST", `q=${encodeURIComponent(q)}`);
+  if (!apiOk(res)) return null;
+  const rows = res.data?.data || [];
+  return { rows, total: res.data?.responseDetails?.total ?? rows.length };
+}
+
+function loadObjectRecords(obj) {
+  if (!objectRecordSets.has(obj)) {
+    objectRecordSets.set(obj, (async () => {
+      const tail = `FROM ${obj} ORDER BY name__v ASC MAXROWS ${DT_RECORD_LIMIT}`;
+      const got = (await dtQueryRows(`SELECT id, name__v, status__v ${tail}`)) || (await dtQueryRows(`SELECT id, name__v ${tail}`));
+      if (!got) return null;
+      return {
+        total: got.total,
+        values: got.rows.map((row) => {
+          const st = Array.isArray(row.status__v) ? row.status__v[0] : row.status__v;
+          return {
+            name: String(row.id ?? ""),
+            label: row.name__v != null ? String(row.name__v) : String(row.id ?? ""),
+            inactive: !!st && !/^active__v$/i.test(String(st)),
+          };
+        }),
+      };
+    })());
   }
-  picklistNames.set(field, name);
-  return name;
+  return objectRecordSets.get(obj);
+}
+
+const VQL_NAME_RE = /^[a-z_][a-z0-9_]*$/i;
+
+async function describePicklists(fields) {
+  const res = await apiCall(
+    "/query", "POST",
+    `q=${encodeURIComponent(`SELECT ${fields.join(", ")} FROM documents MAXROWS 1`)}`,
+    { "X-VaultAPI-DescribeQuery": "true" }
+  );
+  if (!apiOk(res)) return null;
+  const out = new Map();
+  for (const f of res.data?.queryDescribe?.fields || []) {
+    if (f?.name) out.set(String(f.name).toLowerCase(), f.picklist || null);
+  }
+  return out;
+}
+
+// Names the picklists behind several fields with one query. A field the query
+// can't take (hidden from this user, say) fails the lot, so then each field is
+// asked about on its own. Fields already being asked about wait for that.
+const picklistNamePending = new Map(); // field -> the lookup in flight
+
+async function picklistNamesFor(fields) {
+  const open = [...new Set(fields)].filter((f) => VQL_NAME_RE.test(f) && !picklistNames.has(f));
+  const waits = open.filter((f) => picklistNamePending.has(f)).map((f) => picklistNamePending.get(f));
+  const want = open.filter((f) => !picklistNamePending.has(f));
+  if (want.length) {
+    const job = (async () => {
+      const all = await describePicklists(want);
+      if (all) {
+        for (const f of want) picklistNames.set(f, all.get(f.toLowerCase()) ?? null);
+        return;
+      }
+      for (const f of want) {
+        const one = await describePicklists([f]);
+        picklistNames.set(f, one?.get(f.toLowerCase()) ?? null);
+      }
+    })();
+    for (const f of want) picklistNamePending.set(f, job);
+    job.finally(() => {
+      for (const f of want) picklistNamePending.delete(f);
+    });
+    waits.push(job);
+  }
+  await Promise.all(waits);
+}
+
+async function picklistNameFor(field) {
+  if (!picklistNames.has(field)) await picklistNamesFor([field]);
+  return picklistNames.get(field) ?? null;
 }
 
 async function loadPicklistValues(prop) {
+  const ref = refObjectOf(prop);
+  if (ref) {
+    const set = await loadObjectRecords(ref);
+    return set
+      ? { values: set.values, total: set.total, records: true, source: `object ${ref}`, controlling: null }
+      : { values: null, records: true, source: "", controlling: null };
+  }
   const fromType = Array.isArray(prop.entryNames)
     ? prop.entryNames.map((n, i) => ({ name: n, label: prop.entryLabels?.[i] ?? "" }))
     : null;
-  const pick = prop.picklist || (await picklistNameFor(prop.name));
+  const pick = prop.picklist || (fromType ? null : await picklistNameFor(prop.name));
   if (pick) {
+    // One request per picklist, shared by every field and view asking for it.
     if (!picklistValueSets.has(pick)) {
-      const res = await apiCall(`/objects/picklists/${encodeURIComponent(pick)}`);
       picklistValueSets.set(
         pick,
-        apiOk(res) && Array.isArray(res.data?.picklistValues)
-          ? res.data.picklistValues.map((v) => ({ name: v.name, label: v.label || "" }))
-          : null
+        apiCall(`/objects/picklists/${encodeURIComponent(pick)}`).then((res) =>
+          apiOk(res) && Array.isArray(res.data?.picklistValues)
+            ? {
+                values: res.data.picklistValues.map((v) => ({ name: v.name, label: v.label || "" })),
+                controlling: res.data.controllingPicklistName || null,
+              }
+            : null
+        )
       );
     }
-    const values = picklistValueSets.get(pick);
-    if (values) return { values, source: `picklist ${pick}` };
+    const set = await picklistValueSets.get(pick);
+    if (set) return { values: set.values, source: `picklist ${pick}`, controlling: set.controlling };
   }
-  if (fromType) return { values: fromType, source: "this type's metadata" };
-  return { values: null, source: "" };
+  if (fromType) return { values: fromType, source: "this type's metadata", controlling: null };
+  return { values: null, source: "", controlling: null };
 }
 
-function renderDtValues(box, result) {
+function dtPickKey(type, field) {
+  return `${type?.name || ""}|${field}`;
+}
+
+async function pickResultFor(type, prop) {
+  const key = dtPickKey(type, prop.name);
+  if (!dtPickResults.has(key)) dtPickResults.set(key, loadPicklistValues(prop));
+  return dtPickResults.get(key);
+}
+
+// The row's count and one-line preview, once its values are known.
+function paintPickRow(row, result) {
+  const n = row.querySelector(".dt-pick-n");
+  const preview = row.querySelector(".dt-pick-preview");
+  if (!n || !preview) return;
+  row.classList.remove("loading");
+  if (!result.values) {
+    n.textContent = "?";
+    row.title = `${row.dataset.fname} — Vault didn't return values for this field`;
+    preview.textContent = "";
+    return;
+  }
+  n.textContent = result.records ? compactCount(result.total ?? result.values.length) : String(result.values.length);
+  preview.textContent = result.values.map((v) => v.label || v.name).join(", ");
+}
+
+// Loads every picklist on the shown type, a few at a time, painting each row
+// as it arrives. Names first, in one query, for those the type doesn't list.
+async function loadTypePicklists(type) {
+  const rows = [...dtFields.querySelectorAll(".dt-pick")];
+  if (!rows.length) return;
+  const props = new Map((type.properties || []).map((p) => [p.name, p]));
+  for (const row of rows) row.classList.add("loading");
+  const needNames = rows
+    .map((r) => props.get(r.dataset.fname))
+    .filter((p) => p && isPicklistProp(p) && !p.picklist && !Array.isArray(p.entryNames))
+    .map((p) => p.name);
+  if (needNames.length) await picklistNamesFor(needNames);
+
+  let i = 0;
+  const worker = async () => {
+    while (i < rows.length) {
+      const row = rows[i++];
+      const prop = props.get(row.dataset.fname) || { name: row.dataset.fname };
+      const result = await pickResultFor(type, prop);
+      if (dtSelected !== type) return;
+      const live = dtFields.querySelector(`.dt-pick[data-fname="${CSS.escape(row.dataset.fname)}"]`);
+      if (live) paintPickRow(live, result);
+    }
+  };
+  await Promise.all(Array.from({ length: DT_PICK_CONCURRENCY }, worker));
+}
+
+function renderDtValues(box, result, prop) {
   const vals = result.values;
   if (!vals) {
     box.innerHTML = '<div class="dt-values-head">Vault didn\'t return values for this field.</div>';
     return;
   }
   if (!vals.length) {
-    box.innerHTML = `<div class="dt-values-head">No active values · ${esc(result.source)}</div>`;
+    box.innerHTML = `<div class="dt-values-head">${result.records ? "No records" : "No active values"} · ${esc(result.source)}</div>`;
     return;
   }
+  const total = result.total ?? vals.length;
+  // No help line: the chips say enough. Only a record list cut short says so.
+  const head = result.records && total > vals.length
+    ? `First ${vals.length.toLocaleString()} of ${total.toLocaleString()} records`
+    : "";
   const filter = vals.length > DT_VALUES_FILTER_AT
     ? `<input type="search" class="dt-values-filter" placeholder="Filter ${vals.length} values" aria-label="Filter values" spellcheck="false" />`
     : "";
   box.innerHTML =
-    `<div class="dt-values-head">${vals.length} value${vals.length === 1 ? "" : "s"} · ${esc(result.source)} · click to copy</div>` +
+    (head ? `<div class="dt-values-head">${esc(head)}</div>` : "") +
     filter +
     '<div class="dt-values-list">' +
     vals
       .map(
         (v) =>
-          `<button type="button" class="dt-value" data-name="${esc(v.name)}" title="Copy ${esc(v.name)}">` +
+          `<button type="button" class="dt-value${v.inactive ? " inactive" : ""}" data-name="${esc(v.name)}" ` +
+          `title="Copy ${esc(v.name)}${v.inactive ? " · inactive" : ""}">` +
           `<span class="dt-value-label">${esc(v.label || v.name)}</span>` +
           `<span class="dt-value-name">${esc(v.name)}</span></button>`
       )
@@ -4542,9 +4651,11 @@ async function toggleDtValues(row) {
   box.dataset.field = field;
   box.innerHTML = '<div class="dt-values-head">Loading values…</div>';
   row.after(box);
-  const prop = (dtSelected?.properties || []).find((x) => x.name === field) || { name: field };
-  const result = await loadPicklistValues(prop);
-  if (box.isConnected) renderDtValues(box, result);
+  const type = dtSelected;
+  const prop = (type?.properties || []).find((x) => x.name === field) || { name: field };
+  const result = await pickResultFor(type, prop);
+  paintPickRow(row, result);
+  if (box.isConnected) renderDtValues(box, result, prop);
 }
 
 function showDocTypeFields(type) {
@@ -4553,8 +4664,7 @@ function showDocTypeFields(type) {
     ' <span class="dt-bc-sep">&#8250;</span> ' +
     `<span class="dt-bc-item">${esc(type.label)}</span>`;
 
-  if (type.error) {
-    dtStats.classList.add("hidden");
+  if (type.error && !type.properties) {
     dtFields.innerHTML = `<div class="dm-empty">Couldn't load this type.<br />${esc(type.error)}</div>`;
     return;
   }
@@ -4564,23 +4674,16 @@ function showDocTypeFields(type) {
   type._layout = onLayout;
   type._layoutDetected = detected;
 
-  dtStats.classList.remove("hidden");
-  dtFieldCount.innerHTML = detected
-    ? `${onLayout.length} <small>on layout &middot; ${props.length} total</small>`
-    : `${props.length} <small>fields on this type</small>`;
-
   if (!props.length) {
     dtFields.innerHTML = '<div class="dm-empty">This type declares no fields.</div>';
     return;
   }
 
+  // Picklists opened before a re-render (a fresh fetch, say) open again after.
+  const reopen = [...dtFields.querySelectorAll('.dt-pick[aria-expanded="true"]')].map((r) => r.dataset.fname);
   let html = "";
 
   if (!detected) {
-    html +=
-      '<div class="dt-field-count">' +
-      `${props.length} fields &middot; no section data on this response, showing all` +
-      "</div>";
     // No placement data, so payload order is the only sequence Vault gives —
     // bar the pinned boilerplate, which still belongs at the end.
     const order = new Map(props.map((p, i) => [p, i]));
@@ -4589,8 +4692,11 @@ function showDocTypeFields(type) {
         (isPinnedLast(a.name) ? 1 : 0) - (isPinnedLast(b.name) ? 1 : 0) ||
         order.get(a) - order.get(b)
     );
+    type._ordered = flat.filter((p) => p.hidden !== true);
+    html += dtTagBarHtml(type._ordered);
     for (const p of flat) html += dtFieldRowHtml(p);
     dtFields.innerHTML = html;
+    finishDocTypeFields(type, reopen);
     return;
   }
 
@@ -4603,7 +4709,7 @@ function showDocTypeFields(type) {
     groups.get(s).push(p);
   }
   // Fields read in true form order: sectionPosition within the section, then the
-  // order Vault returned. Required fields are badged, not reordered — moving them
+  // order Vault returned. Required fields are marked, not reordered — moving them
   // would break the sequence someone filling the form actually sees.
   const payloadOrder = new Map(props.map((p, i) => [p, i]));
   for (const list of groups.values()) {
@@ -4623,7 +4729,17 @@ function showDocTypeFields(type) {
   for (const [name, list] of groups) {
     sectionFirstSeen.set(name, Math.min(...list.map((p) => payloadOrder.get(p))));
   }
+  // General always leads, whatever Vault numbered it; plain "General" before
+  // "General Information" and the like.
+  const generalRank = (name) => {
+    const label = String(sectionLabel(name)).trim().toLowerCase();
+    const raw = String(name).toLowerCase();
+    if (label === "general" || /^general(__[a-z]+)?$/.test(raw)) return 0;
+    return /^general/.test(label) || /^general/.test(raw) ? 1 : 2;
+  };
   const sectionNames = [...groups.keys()].sort((a, b) => {
+    const general = generalRank(a) - generalRank(b);
+    if (general) return general;
     const pinned = (isPinnedLast(a) ? 1 : 0) - (isPinnedLast(b) ? 1 : 0);
     if (pinned) return pinned;
     const pa = Math.min(...groups.get(a).map(fieldSectionPos));
@@ -4631,12 +4747,12 @@ function showDocTypeFields(type) {
     return pa - pb || sectionFirstSeen.get(a) - sectionFirstSeen.get(b);
   });
 
-  const requiredCount = onLayout.filter((p) => p.required === true).length;
-  html += `<div class="dt-field-count">${onLayout.length} on layout &middot; ${requiredCount} required &middot; ${sectionNames.length} section${sectionNames.length === 1 ? "" : "s"}</div>`;
+  type._ordered = sectionNames.flatMap((n) => groups.get(n));
+  html += dtTagBarHtml(type._ordered);
 
   for (const name of sectionNames) {
     html += '<div class="dt-section">';
-    html += `<div class="dt-section-header">${esc(name)}</div>`;
+    html += `<div class="dt-section-header" data-section="${esc(name)}">${esc(sectionLabel(name))}</div>`;
     for (const p of groups.get(name)) html += dtFieldRowHtml(p);
     html += "</div>";
   }
@@ -4653,9 +4769,211 @@ function showDocTypeFields(type) {
   }
 
   dtFields.innerHTML = html;
+  finishDocTypeFields(type, reopen);
+}
+
+function finishDocTypeFields(type, reopen) {
+  applyDtTagFilter();
+  if (!dtSectionLabels) {
+    loadSectionLabels().then(() => {
+      for (const h of dtFields.querySelectorAll(".dt-section-header[data-section]")) h.textContent = sectionLabel(h.dataset.section);
+    });
+  }
+  for (const f of reopen) {
+    const row = dtFields.querySelector(`.dt-pick[data-fname="${CSS.escape(f)}"]`);
+    if (row) toggleDtValues(row);
+  }
+  loadTypePicklists(type);
+}
+
+// ---- Who fills it: filter, then query ----------------------------------------
+// Chips filter the layout by tag; "Query these N" writes a query of the
+// layout fields showing, in layout order, for this type, and opens it.
+let dtTagFilter = "all";
+chrome.storage.local.get("dtTagFilter").then((r) => {
+  if (DT_FILTERS[r?.dtTagFilter]) dtTagFilter = r.dtTagFilter;
+});
+
+// An arrow on the chip: it takes the fields over to a query, it doesn't run one.
+const DT_QUERY_ICON =
+  '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>';
+
+// The fields a query can take: on the layout, not hidden, queryable, a VQL name.
+function dtQueryable(p) {
+  return p.hidden !== true && p.queryable !== false && /^[a-z_][a-z0-9_]*$/i.test(p.name || "") && p.name !== "id";
+}
+
+function dtIsUserField(p) {
+  return dtFillTag(p).tag !== "system";
+}
+
+// All Fields | User Fields on the left, the query on the right.
+function dtTagBarHtml(fields) {
+  const counts = { all: fields.length, user: fields.filter(dtIsUserField).length };
+  const opt = (key) =>
+    `<button type="button" class="dt-sort-opt dt-tagchip" data-tag-filter="${key}" aria-pressed="false">` +
+    `${DT_FILTERS[key]} <span class="dt-tagchip-n">${counts[key]}</span></button>`;
+  return (
+    '<div class="dt-tagbar">' +
+    `<div class="dt-sort dt-fill-switch" role="group" aria-label="Show">${opt("all")}${opt("user")}</div>` +
+    `<button type="button" class="model-chip dt-query-btn" id="dt-query-btn"><span class="model-chip-label dt-query-label"></span>${DT_QUERY_ICON}</button>` +
+    "</div>"
+  );
+}
+
+// Shows only the rows of the chosen tag; sections left empty fold away.
+function applyDtTagFilter() {
+  dtFields.dataset.tagFilter = dtTagFilter;
+  for (const chip of dtFields.querySelectorAll(".dt-tagchip")) {
+    const on = chip.dataset.tagFilter === dtTagFilter;
+    chip.classList.toggle("active", on);
+    chip.setAttribute("aria-pressed", String(on));
+  }
+  for (const sec of dtFields.querySelectorAll(".dt-section")) {
+    const any = [...sec.querySelectorAll(".dt-field-row")].some((r) => dtTagFilter === "all" || r.dataset.tag === "user");
+    sec.classList.toggle("dt-section-empty", !any);
+  }
+  const btn = dtFields.querySelector("#dt-query-btn");
+  if (!btn) return;
+  const fields = dtQueryFields(dtSelected);
+  const n = fields.length;
+  btn.querySelector(".dt-query-label").textContent = `QUERY ${n} FIELD${n === 1 ? "" : "S"}`;
+  btn.disabled = !n;
+  const where = WINDOW_MODE ? "in a new query tab" : "in the editor";
+  btn.title = n
+    ? `Write SELECT ${n === 1 ? "this field" : `these ${n} fields`} FROM ${dtSelected?.label || "this type"} ${where}`
+    : "None of these fields can be queried";
+}
+
+function dtQueryFields(type) {
+  return (type?._ordered || []).filter((p) => (dtTagFilter === "all" || dtIsUserField(p)) && dtQueryable(p));
+}
+
+// SELECT id, then the fields a line at a time once the line runs long.
+function dtBuildQuery(type, fields) {
+  const items = ["id", ...fields.map((p) => p.name)];
+  const lines = [];
+  let line = "SELECT";
+  for (let i = 0; i < items.length; i++) {
+    const part = `${items[i]}${i < items.length - 1 ? "," : ""}`;
+    if (line.length + part.length + 1 > 72 && line.trim() !== "SELECT") {
+      lines.push(line);
+      line = `  ${part}`;
+    } else {
+      line += ` ${part}`;
+    }
+  }
+  lines.push(line);
+  return `${lines.join("\n")}\nFROM documents\nWHERE TONAME(type__v) = '${vqlStr(type.name)}'`;
+}
+
+// A new tab in the full window; in the overlay it takes the editor, asking
+// first if there's a query in it.
+function openDtQuery() {
+  const type = dtSelected;
+  const fields = dtQueryFields(type);
+  if (!type || !fields.length) return;
+  const query = dtBuildQuery(type, fields);
+  if (WINDOW_MODE) {
+    if (activeQueryToken) {
+      alert("A query is still running. Try again when it finishes.");
+      return;
+    }
+    if (vqlInput.value.trim()) newQueryTab();
+  } else if (vqlInput.value.trim() && vqlInput.value.trim() !== query && !confirm("Replace the query in the editor?")) {
+    return;
+  }
+  insertIntoQuery(query, true);
+  vqlInput.setSelectionRange(0, 0);
+  vqlInput.scrollTop = 0;
+}
+
+// ---- Fresh fields on click ------------------------------------------------------
+// LOAD TYPES fetched every type once; clicking one asks Vault for that type
+// again (Retrieve Document Type, by the link Vault handed back), so the layout
+// shown is the vault's now. Once per type per page; the saved copy is updated.
+const dtFresh = new Set();
+
+// Section headings by their label. The fields name their section; the labels
+// are on the field layouts' configuration, one call per vault. Without it (a
+// user who can't read configuration, or a built-in section), the name is
+// tidied: general__c → General, generalProperties → General Properties.
+let dtSectionLabels = null;        // section name (lower case) -> label
+let dtSectionLabelsPending = null;
+
+// A name tidied into a heading: no suffix, words split, a trailing "section"
+// dropped, title case like Vault's own labels: product_information__c → Product Information.
+function prettySection(name) {
+  const s = String(name || "")
+    .replace(/__[a-z]+$/i, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_\s]+/g, " ")
+    .replace(/\s+section$/i, "")
+    .trim()
+    .toLowerCase();
+  return s ? s.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : String(name || "");
+}
+
+// A label as the heading shows it: single-spaced, and not in capitals.
+function cleanSectionLabel(label) {
+  const s = String(label || "").replace(/\s+/g, " ").trim();
+  return s && s === s.toUpperCase() && /[A-Z]{2}/.test(s)
+    ? s.toLowerCase().split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+    : s;
+}
+
+function sectionLabel(name) {
+  return cleanSectionLabel(dtSectionLabels?.get(String(name).toLowerCase())) || prettySection(name);
+}
+
+function loadSectionLabels() {
+  if (dtSectionLabels) return Promise.resolve(dtSectionLabels);
+  if (!dtSectionLabelsPending) {
+    dtSectionLabelsPending = apiCall("/configuration/Docfieldlayout")
+      .then((res) => {
+        const map = new Map();
+        if (apiOk(res)) {
+          for (const r of res.data?.data || []) if (r?.name && r.label) map.set(String(r.name).toLowerCase(), String(r.label));
+        }
+        dtSectionLabels = map;
+        return map;
+      })
+      .catch(() => (dtSectionLabels = new Map()))
+      .finally(() => {
+        dtSectionLabelsPending = null;
+      });
+  }
+  return dtSectionLabelsPending;
+}
+
+async function refreshDocType(type) {
+  if (dtFresh.has(type.name)) return;
+  const path = vaultPath(type.link);
+  if (!path || !state.sessionId) return;
+  const res = await apiCall(path);
+  if (!apiOk(res)) return;
+  dtFresh.add(type.name);
+  type.properties = res.data?.properties || [];
+  type.subtypes = res.data?.subtypes || type.subtypes || [];
+  type.error = null;
+  for (const key of [...dtPickResults.keys()]) if (key.startsWith(`${type.name}|`)) dtPickResults.delete(key);
+  if (dtSelected === type) showDocTypeFields(type);
+  saveDocTypes();
 }
 
 dtFields.addEventListener("click", async (e) => {
+  const tagChip = e.target.closest(".dt-tagchip");
+  if (tagChip) {
+    dtTagFilter = tagChip.dataset.tagFilter;
+    chrome.storage.local.set({ dtTagFilter });
+    applyDtTagFilter();
+    return;
+  }
+  if (e.target.closest("#dt-query-btn")) {
+    openDtQuery();
+    return;
+  }
   const value = e.target.closest(".dt-value");
   if (value) {
     try {

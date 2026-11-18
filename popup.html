@@ -51,16 +51,23 @@
         </div>
       </div>
 
-      <div id="topbar-chip-slot" class="topbar-chip-slot"></div>
+      <!-- The load chips; the full window moves them to its status bar. -->
+      <div id="topbar-chip-slot" class="topbar-chip-slot">
+        <div id="chip-group" class="chip-group">
+          <button id="model-chip" class="model-chip" title="Load data model — enables autocomplete">
+            <span class="model-chip-dot"></span>
+            <span class="model-chip-check">&#10003;</span>
+            <span id="model-chip-label" class="model-chip-label">LOAD MODEL</span>
+          </button>
+          <button id="dt-chip" class="model-chip" title="Load document types and the fields on each layout">
+            <span class="model-chip-dot"></span>
+            <span class="model-chip-check">&#10003;</span>
+            <span id="dt-chip-label" class="model-chip-label">LOAD TYPES</span>
+          </button>
+        </div>
+      </div>
       <span class="topbar-sep topbar-sep-chips window-only"></span>
 
-      <button id="whoami-btn" class="topbar-icon hidden" title="User info">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0,-4-4H8a4 4 0 0 0,-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-      </button>
-      <button id="disconnect-btn" class="topbar-icon hidden" title="Disconnect">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-      </button>
-      <span class="topbar-sep topbar-sep-window"></span>
       <button id="expand-btn" class="topbar-icon topbar-icon-accent" title="Open full window">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
       </button>
@@ -70,17 +77,6 @@
       <button id="close-btn" class="topbar-icon topbar-icon-danger" title="Close">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
-    </div>
-
-    <!-- Who Am I popover — the session identity strip. AI access moved to the
-         Skills tab. -->
-    <div id="whoami-popover" class="whoami-popover hidden">
-      <!-- #user-details is injected by popup.js, so the close button is a
-           sibling rather than a child — an innerHTML write would remove it. -->
-      <div class="whoami-identity">
-        <div id="user-details" class="whoami-identity-main"></div>
-        <button id="whoami-close" class="whoami-close" type="button" title="Close">&times;</button>
-      </div>
     </div>
 
     <div id="connection-panel" class="hidden"></div>
@@ -122,17 +118,22 @@
               <span id="value-chip-label">FIELD NAMES</span>
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h13"/><path d="m17 20 4-4-4-4"/><path d="M21 16H8"/></svg>
             </button>
-            <div id="chip-group" class="chip-group">
-              <button id="model-chip" class="model-chip" title="Load data model — enables autocomplete">
-                <span class="model-chip-dot"></span>
-                <span class="model-chip-check">&#10003;</span>
-                <span id="model-chip-label" class="model-chip-label">LOAD MODEL</span>
+            <!-- History drops its list under itself. The full window has the
+                 rail's History panel instead. -->
+            <div class="history-wrap">
+              <button id="history-btn" class="history-corner" type="button" title="Query history"
+                      aria-haspopup="true" aria-expanded="false" aria-controls="history-popover">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+                <span class="history-corner-label">History</span>
+                <kbd class="history-corner-key" title="↓ in an empty editor steps through past queries">↓</kbd>
               </button>
-              <button id="dt-chip" class="model-chip" title="Load document types and the fields on each layout">
-                <span class="model-chip-dot"></span>
-                <span class="model-chip-check">&#10003;</span>
-                <span id="dt-chip-label" class="model-chip-label">LOAD TYPES</span>
-              </button>
+              <div id="history-popover" class="history-popover hidden">
+                <div class="popover-header">
+                  <span>Query History</span>
+                  <button id="clear-history-btn" class="btn btn-small btn-text">Clear</button>
+                </div>
+                <div id="history-list"></div>
+              </div>
             </div>
             <!-- Full-window only. Clear, Cancel and Run are moved in here by
                  popup.js, so the overlay keeps them under the editor. -->
@@ -167,19 +168,6 @@
                  keeps Copy. Label and ↓ hint show while the editor is empty,
                  which is when ↓ steps back through past queries; with text in
                  it the pill shrinks to its icon. -->
-            <button id="history-btn" class="history-corner" type="button" title="Query history"
-                    aria-haspopup="true" aria-expanded="false" aria-controls="history-popover">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
-              <span class="history-corner-label">History</span>
-              <kbd class="history-corner-key" title="↓ in an empty editor steps through past queries">↓</kbd>
-            </button>
-            <div id="history-popover" class="history-popover hidden">
-              <div class="popover-header">
-                <span>Query History</span>
-                <button id="clear-history-btn" class="btn btn-small btn-text">Clear</button>
-              </div>
-              <div id="history-list"></div>
-            </div>
           </div>
           <div class="query-actions">
             <button id="run-btn" class="btn btn-primary" title="Runs the query and fetches ALL pages concurrently. For stable paging on large sets, include an ORDER BY.">Run Query</button>
@@ -296,7 +284,6 @@
             <button id="dm-insert-all" class="dm-show-more hidden" type="button"></button>
           </div>
 
-          <div class="dm-foot">Click to insert at the cursor · ⇧-click adds to SELECT</div>
         </div>
       </div>
 
@@ -319,11 +306,6 @@
           </div>
           <div class="dt-detail-panel">
             <div id="dt-breadcrumb" class="dt-breadcrumb"></div>
-            <div id="dt-stats" class="dt-stats hidden">
-              <div class="dt-stats-row">
-                <span id="dt-field-count" class="dt-stat"></span>
-              </div>
-            </div>
             <div id="dt-fields" class="dt-fields"></div>
           </div>
         </div>
