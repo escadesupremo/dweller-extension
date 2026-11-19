@@ -16,6 +16,10 @@
     "https://api.openai.com/*",
     "https://generativelanguage.googleapis.com/*"
   ],
+  "optional_host_permissions": [
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*"
+  ],
   "action": {
     "default_icon": {
       "16": "icons/icon16.png",

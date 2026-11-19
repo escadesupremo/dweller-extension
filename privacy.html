@@ -315,7 +315,7 @@
     </div>
     <div class="topmeta">
       <span>Privacy policy</span>
-      <span>Updated 7 Nov 2026</span>
+      <span>Updated 18 Nov 2026</span>
       <span>Applies to v1.0.0+</span>
     </div>
   </div>
@@ -346,8 +346,8 @@
       </div>
       <div class="card dark">
         <span class="num">04</span>
-        <p class="lead">Records are not sent to AI.</p>
-        <p class="sub">Query results, document contents and field values remain in the browser.</p>
+        <p class="lead">Records reach AI only when you run a skill.</p>
+        <p class="sub">Then the results of the skill's queries go to your AI provider, and nowhere else.</p>
       </div>
     </div>
   </div>
@@ -359,7 +359,7 @@
     <span class="eyebrow">On this page</span>
     <a href="#stored"><span class="num">01</span>Stored on your device</a>
     <a href="#session"><span class="num">02</span>Your Vault session</a>
-    <a href="#ai"><span class="num">03</span>The AI provider key</a>
+    <a href="#ai"><span class="num">03</span>AI and skills</a>
     <a href="#not"><span class="num">04</span>What we do not do</a>
     <a href="#other"><span class="num">05</span>Children, changes, contact</a>
   </nav>
@@ -380,13 +380,14 @@
         <div class="row"><b>Saved query tabs</b><span class="why">Keeping the full-window editor’s open queries between sessions; closing a tab deletes its query</span></div>
         <div class="row"><b>Cached object and document-type metadata</b><span class="why">Data model browsing (including the objects you opened recently) and autocomplete without re-fetching</span></div>
         <div class="row"><b>AI provider API key</b><span class="why">Authenticating requests to the provider you configure</span></div>
+        <div class="row"><b>Installed skills</b><span class="why">The skill files you imported from GitHub, and where each came from, so you can run and update them</span></div>
       </div>
 
       <p>The API key is held by the background service worker and is not exposed to the extension’s interface pages. It is transmitted only to the configured provider, over HTTPS.</p>
 
       <span class="eyebrow">Deletion</span>
       <div class="inline-defs">
-        <div><b>Remove</b> <span>— deletes the API key</span></div>
+        <div><b>Remove</b> <span>— deletes the API key, or an installed skill</span></div>
         <div><b>Clear</b> <span>— deletes query history</span></div>
         <div><b>Uninstall</b> <span>— removes all stored data</span></div>
       </div>
@@ -408,15 +409,18 @@
     <section id="ai">
       <div class="sec-head">
         <span class="num">03</span>
-        <h2>The AI provider key</h2>
+        <h2>AI and skills</h2>
       </div>
-      <p>No AI request is made until an API key is saved. Saving one sends a single check to the provider you chose, to confirm the key works, and nothing else:</p>
+      <p>No AI request is made until an API key is saved. Saving one sends a single check to the provider you chose, which lists its models, and nothing else.</p>
 
+      <p>A skill is a set of instructions you import from a public GitHub repository. When you run one, and only then, the extension sends your AI provider:</p>
       <div class="disclose">
         <ul>
+          <li><span>The skill's instructions and the inputs you give it</span></li>
+          <li><span>The results of the reads it makes in your Vault as it works: query rows, field and picklist definitions, document types</span></li>
           <li><span>The API key, in the request header, to the provider it belongs to</span></li>
         </ul>
-        <p class="after">The check asks the provider to list its models. No questions, queries, schema metadata or Vault data are sent to any AI provider.</p>
+        <p class="after">Every read appears on screen as it happens. Queries are read-only and capped at 5,000 rows each, of which the AI provider sees at most the first 300. Counts and Excel files are made in the extension: only the totals and the largest counts reach the AI provider, and the Excel file stays on your computer. A skill reads only through the tools it declares, and changes data only through changes you approve first, row by row; the extension then makes them in your Vault, as you.</p>
       </div>
 
       <div class="callout">
@@ -426,16 +430,19 @@
           <path d="M22 26v5"></path>
         </svg>
         <div>
-          <p class="display">Vault record data is not sent to AI providers.</p>
-          <p>Query results, document contents and field values do not leave the browser.</p>
+          <p class="display">Your Vault session never reaches an AI provider.</p>
+          <p>The session token and the API key stay in the extension's background worker. Outside a skill run, no Vault data is sent to any AI provider.</p>
         </div>
       </div>
+
+      <p>Importing or updating a skill reads its files from GitHub (api.github.com and raw.githubusercontent.com), with permission Chrome asks you for the first time. Nothing from your Vault is sent to GitHub, and no GitHub account is used.</p>
 
       <div class="links">
         <span>Those services operate under their own policies:</span>
         <a href="https://www.anthropic.com/legal/privacy" rel="noopener noreferrer">Anthropic</a>
         <a href="https://openai.com/policies/privacy-policy" rel="noopener noreferrer">OpenAI</a>
         <a href="https://policies.google.com/privacy" rel="noopener noreferrer">Google AI</a>
+        <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener noreferrer">GitHub</a>
       </div>
     </section>
 
@@ -448,7 +455,7 @@
         <div><span>✕</span><span>Sell or transfer data to third parties for advertising or any unrelated purpose.</span></div>
         <div><span>✕</span><span>Use data for creditworthiness or lending purposes.</span></div>
         <div><span>✕</span><span>Use data for any purpose unrelated to the extension’s single function: working with Veeva Vault data and its API.</span></div>
-        <div><span>✕</span><span>Retain data. None is collected, so none is held, shared or exposed.</span></div>
+        <div><span>✕</span><span>Retain data. None is collected by us, so none is held, shared or exposed; what a skill run sends goes from your browser to the AI provider you chose.</span></div>
       </div>
     </section>
 

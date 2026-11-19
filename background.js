@@ -1,5 +1,11 @@
 // Background service worker — reads TK cookie and handles Vault API calls
 
+// Skills: the format, the GitHub import and the saved list (skills.js), and the
+// run loop with its tools (skill-runner.js). Both use this file's Vault call,
+// provider table and redaction, which are declared below and in scope by the
+// time any of their functions run.
+importScripts("skills.js", "skill-runner.js");
+
 // Toolbar click toggles the overlay iframe injected by content.js into the Vault tab.
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id) return;
@@ -48,6 +54,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === "aiVerifyKey") {
     verifyAiKey().then(sendResponse);
+    return true;
+  }
+
+  if (request.action === "aiModels") {
+    listAiModels().then(sendResponse);
+    return true;
+  }
+
+  if (request.action === "aiSetModel") {
+    setAiModel(request.model).then(sendResponse);
+    return true;
+  }
+
+  if (typeof request.action === "string" && request.action.startsWith("skills")) {
+    skillsMessage(request).then((r) => sendResponse(r || { success: false, error: "Unknown request." }));
     return true;
   }
 
@@ -221,6 +242,8 @@ function rateLimited(log, max) {
 async function saveAiKey(provider, key) {
   if (!AI_PROVIDERS[provider]) return { success: false, error: "Unknown provider" };
   const trimmed = String(key || "").trim();
+  // A model belongs to one provider's key; a new key picks again.
+  await chrome.storage.local.remove(["aiModel"]);
   if (!trimmed) {
     await chrome.storage.local.remove(["aiKey", "aiProvider", "aiKeyVerified"]);
     return { success: true, hasKey: false, provider: provider };

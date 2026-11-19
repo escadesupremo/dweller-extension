@@ -1479,14 +1479,16 @@ function xmlSafe(s) {
 // Every cell, header included, uses cellXfs entry 1: a thin black border on all
 // four sides (so the whole table gets an inner and an outer grid) and wrapped
 // text, top-aligned so a tall wrapped cell doesn't push the rest of its row to
-// the bottom. Entry 0 is the plain default every workbook must have.
+// the bottom. Entry 0 is the plain default every workbook must have. Skill
+// reports add 2, a bold header on light grey, and 3, a flagged row in light
+// amber; both keep the grid.
 const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font></fonts>
-<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+<fonts count="2"><font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font><font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font></fonts>
+<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7E6E6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill></fills>
 <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>
+<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 
@@ -1504,46 +1506,76 @@ function longestLine(s) {
   return n;
 }
 
-function sheetXml(keys, rows) {
+// A1-style column letters: 0 → A, 26 → AA.
+function colLetter(i) {
+  let s = "";
+  for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+// opts (skill reports): header → bold grey header row, freeze → header stays
+// put while scrolling, filter → filter buttons on the header, highlight → the
+// key whose non-empty value shades its row, maxWidth → a wider column cap.
+function sheetXml(keys, rows, opts = {}) {
   const xmlEsc = (s) => xmlSafe(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // maxWidth: one cap for every column, or a cap per column.
+  const capOf = (i) => (Array.isArray(opts.maxWidth) ? opts.maxWidth[i] : opts.maxWidth) || XLSX_COL_MAX;
   const widths = keys.map((k) => longestLine(String(k)));
   let sheetRows = "<row>";
-  for (const key of keys) sheetRows += `<c s="1" t="inlineStr"><is><t>${xmlEsc(key)}</t></is></c>`;
+  const headStyle = opts.header ? 2 : 1;
+  for (const key of keys) sheetRows += `<c s="${headStyle}" t="inlineStr"><is><t>${xmlEsc(key)}</t></is></c>`;
   sheetRows += "</row>";
   for (const row of rows) {
+    const style = opts.highlight && row[opts.highlight] ? 3 : 1;
     sheetRows += "<row>";
     for (let i = 0; i < keys.length; i++) {
       const val = row[keys[i]];
       const text = typeof val === "number" ? String(val) : String(exportText(val));
-      if (widths[i] < XLSX_COL_MAX) widths[i] = Math.max(widths[i], longestLine(text));
+      if (widths[i] < capOf(i)) widths[i] = Math.max(widths[i], longestLine(text));
       if (typeof val === "number") {
-        sheetRows += `<c s="1"><v>${val}</v></c>`;
+        sheetRows += `<c s="${style}"><v>${val}</v></c>`;
       } else {
-        sheetRows += `<c s="1" t="inlineStr"><is><t>${xmlEsc(text)}</t></is></c>`;
+        sheetRows += `<c s="${style}" t="inlineStr"><is><t>${xmlEsc(text)}</t></is></c>`;
       }
     }
     sheetRows += "</row>";
   }
   // +2 for the cell's padding, so a value at exactly the measured width fits.
+  // A header with filter buttons needs room for the button too.
+  const pad = opts.filter ? 4 : 2;
   const cols = widths
     .map((w, i) => {
-      const width = Math.min(XLSX_COL_MAX, Math.max(XLSX_COL_MIN, w + 2));
+      const width = Math.min(capOf(i), Math.max(XLSX_COL_MIN, w + pad));
       return `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`;
     })
     .join("");
+  const views = opts.freeze
+    ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>'
+    : "";
+  const filter = opts.filter && keys.length ? `<autoFilter ref="${filterRef(keys, rows)}"/>` : "";
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${sheetRows}</sheetData>
+${views}${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${sheetRows}</sheetData>${filter}
 </worksheet>`;
 }
 
+function filterRef(keys, rows) {
+  return `A1:${colLetter(keys.length - 1)}${rows.length + 1}`;
+}
+
 function buildXlsxBlob(rows) {
-  const sheets = xlsxSheets(rows);
+  return buildWorkbookBlob(xlsxSheets(rows));
+}
+
+// sheets: [{ name, keys, rows, header?, freeze?, filter?, highlight?, maxWidth? }]
+function buildWorkbookBlob(input) {
+  const used = new Set();
+  const sheets = input.map((sh) => ({ ...sh, name: sheetName(sh.name, used) }));
   const xmlAttr = (s) => xmlSafe(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets>${sheets.map((sh, i) => `<sheet name="${xmlAttr(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>
+<sheets>${sheets.map((sh, i) => `<sheet name="${xmlAttr(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>${filterNames(sheets, xmlAttr)}
 </workbook>`;
 
   // The styles part takes the id after the last sheet's.
@@ -1574,9 +1606,29 @@ ${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" Co
   zip.addFile("xl/workbook.xml", workbook);
   zip.addFile("xl/_rels/workbook.xml.rels", workbookRels);
   zip.addFile("xl/styles.xml", XLSX_STYLES);
-  sheets.forEach((sh, i) => zip.addFile(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sh.keys, sh.rows)));
+  sheets.forEach((sh, i) => zip.addFile(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sh.keys, sh.rows, sh)));
 
   return zip.toBlob();
+}
+
+// Excel keeps a hidden name for each sheet's filter range and adds it on save
+// if it's missing; writing it up front keeps the file as Excel would.
+function filterNames(sheets, xmlAttr) {
+  const names = sheets
+    .map((sh, i) => (sh.filter && sh.keys.length
+      ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${xmlAttr(sh.name.replace(/'/g, "''"))}'!$A$1:$${colLetter(sh.keys.length - 1)}$${sh.rows.length + 1}</definedName>`
+      : ""))
+    .join("");
+  return names ? `<definedNames>${names}</definedNames>` : "";
+}
+
+function downloadWorkbook(sheets, filename) {
+  const url = URL.createObjectURL(buildWorkbookBlob(sheets));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function downloadXlsx(rows, filename) {
