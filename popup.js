@@ -39,8 +39,9 @@ const insertRow = $("#insert-row");
 const operatorBar = $("#operator-bar");
 
 // Data model refs
-const modelChip = $("#model-chip");
-const modelChipLabel = $("#model-chip-label");
+const dmSync = $("#dm-sync");
+const dmRefresh = $("#dm-refresh");
+const dmSyncBar = $("#dm-sync-bar");
 const dmPanel = $("#dm-panel");
 const dmEmptyState = $("#dm-empty-state");
 const dmCounts = $("#dm-counts");
@@ -69,10 +70,6 @@ const editorGutter = $("#editor-gutter");
 const PAGE_PARAMS = new URLSearchParams(location.search);
 const WINDOW_MODE = PAGE_PARAMS.get("mode") === "window";
 
-// Loads the previous view was part-way through when it handed over (see
-// handoffLoads). Started again once this view has connected.
-const handedLoads = new Set((PAGE_PARAMS.get("resume") || "").split(","));
-
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 const RUN_KEY_LABEL = IS_MAC ? "⌘↵" : "Ctrl ↵";
 
@@ -89,6 +86,8 @@ let acItems = [];
 
 // History navigation: -1 means "not navigating"; 0..N-1 indexes into state.history.
 const HISTORY_NAV_LIMIT = 10;
+// The History popover lists only the latest few; the full window's panel lists all.
+const HISTORY_POPOVER_LIMIT = 5;
 let historyNavIndex = -1;
 
 // Cancellation token for the in-flight query. The cancel button flips
@@ -100,10 +99,9 @@ let activeQueryToken = null;
 // ===================== WINDOW MODE =====================
 if (WINDOW_MODE) {
   document.body.classList.add("mode-window");
-  // The workbench's status bar holds the vault identity on the left and the
-  // model loads on the right; the top bar itself becomes the rail.
+  // The workbench's status bar holds the vault identity; the top bar itself
+  // becomes the rail.
   $("#status-left").appendChild($(".topbar-conn"));
-  $("#status-right").appendChild($("#chip-group"));
   expandBtn.classList.add("hidden");
   collapseBtn.classList.remove("hidden");
   // The editor's own actions sit on its toolbar, right of the operator chips.
@@ -115,12 +113,6 @@ if (WINDOW_MODE) {
   resultsContainer.dataset.empty = `Run a query to see its rows here · ${RUN_KEY_LABEL}`;
 }
 
-// Closing this view abandons any model or type load still running, so the next
-// view is told to start it again rather than coming up without it.
-function handoffLoads() {
-  return [modelLoading && "model", dtLoading && "types"].filter(Boolean).join(",");
-}
-
 expandBtn.addEventListener("click", async () => {
   // Build the query string outside getURL — it takes a path, and a version that
   // escapes or drops the "?" would open the popup layout instead of the window one.
@@ -128,7 +120,6 @@ expandBtn.addEventListener("click", async () => {
   // of several open Vault tabs the panel was working in.
   const query = new URLSearchParams({ mode: "window" });
   if (state.domain) query.set("vault", state.domain);
-  if (handoffLoads()) query.set("resume", handoffLoads());
   const url = `${chrome.runtime.getURL("popup.html")}?${query}`;
   await chrome.tabs.create({ url });
   closeOverlay();
@@ -143,7 +134,7 @@ collapseBtn.addEventListener("click", async () => {
   const tab = vaultTabs.find((t) => hostOf(t.url) === state.domain) || vaultTabs[0];
   if (!tab?.id) return;
   try {
-    await chrome.tabs.sendMessage(tab.id, { action: "openOverlay", resume: handoffLoads() });
+    await chrome.tabs.sendMessage(tab.id, { action: "openOverlay" });
   } catch (e) {
     return;
   }
@@ -252,6 +243,7 @@ function activatePane(name) {
   // layout has to know which pane owns the main column.
   vqlPanel.dataset.activeTab = name;
   if (name === "datamodel") syncDmToQuery();
+  if (name === "doctypes") onDocTypesShown();
 }
 
 $$(".tab").forEach((tab) => {
@@ -398,22 +390,12 @@ async function autoConnect(domain) {
   showUserInfo(userResult.data);
   showVqlPanel();
 
-  // Per-instance data model and document types: load from storage if present,
-  // else the chips prompt the user.
+  // This vault's saved data model and document types show at once; then the
+  // model checks itself, and the types do when their tab is open.
   await loadDataModelForDomain(domain);
   await loadDocTypesForDomain(domain);
-  resumeHandedLoads();
-}
-
-function resumeHandedLoads() {
-  if (!handedLoads.has("model") && !handedLoads.has("types")) return;
-  if (handedLoads.has("model")) loadDataModel();
-  if (handedLoads.has("types")) loadDocTypes();
-  handedLoads.clear();
-  // Once only: a reload of this page shouldn't start the loads over again.
-  const url = new URL(location.href);
-  url.searchParams.delete("resume");
-  history.replaceState(null, "", url);
+  syncModelList();
+  if (dtTabActive()) onDocTypesShown();
 }
 
 // ---- Per-vault cache --------------------------------------------------------
@@ -489,30 +471,43 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (!state.domain) return;
   const model = changes[vaultCacheKey("dataModels", state.domain)]?.newValue;
-  if (model?.model && model.time !== dataModelTime && !modelLoading) {
-    state.dataModel = model.model;
-    onDataModelLoaded(model.time);
+  if (model?.model && model.time !== dataModelTime) {
+    const incoming = normalizeModel(model.model, model.time);
+    if (!state.dataModel) {
+      state.dataModel = incoming;
+      onDataModelLoaded(model.time);
+    } else if (mergeModel(state.dataModel, incoming)) {
+      modelChanged(null, false);
+    }
   }
   const types = changes[vaultCacheKey("docTypeCache", state.domain)]?.newValue;
-  if (types?.types?.length && types.time !== docTypesTime && !dtLoading && !dtCounting) {
-    applyDocTypes(types.types, types.time);
+  if (types?.types?.length && types.time !== docTypesTime) {
+    const incoming = normalizeTypes(types.types, types.time);
+    if (!docTypes.length) applyDocTypes(incoming, types.time);
+    else if (mergeTypes(docTypes, incoming)) {
+      renderDocTypeList();
+      paintSync();
+      if (dtSelected) showDocTypeFields(dtSelected);
+    }
   }
 });
 
 // ===================== PER-INSTANCE DATA MODEL =====================
 async function loadDataModelForDomain(domain) {
+  resetSync();
   dmResetView();
   await loadDmChips(domain);
   forgetLiveObjects();
   await loadFieldStatsForDomain(domain);
   const entry = await readVaultCache("dataModels", domain);
   if (entry && entry.model) {
-    state.dataModel = entry.model;
+    state.dataModel = normalizeModel(entry.model, entry.time);
     onDataModelLoaded(entry.time);
   } else {
     state.dataModel = null;
-    setChipState("idle");
+    dataModelTime = null;
     renderDataModelTree("");
+    paintSync();
   }
 }
 
@@ -733,6 +728,7 @@ function insertAtCursor(text, cursorOffset = null) {
 // the row's other chips step aside (CSS, on .inserting). An insert, the pill
 // again, or Esc puts them back.
 function setInsertOpen(open) {
+  if (open && !findRow.hidden) setFindOpen(false);
   insertRow.hidden = !open;
   operatorBar.classList.toggle("inserting", open);
   insertChip.setAttribute("aria-expanded", String(open));
@@ -785,6 +781,215 @@ document.addEventListener("keydown", (e) => {
     if (inside) historyBtn.focus();
   }
 });
+
+// ===================== FIND =====================
+// Full-text search as a pill beside INSERT and FIELD NAMES. It opens a field
+// in the row the way INSERT opens its chips; Enter writes FIND ('term' SCOPE
+// ALL) into the query just after FROM, so what runs is what the editor shows.
+// The pill then reads the term from the query itself, and its × takes the
+// clause out. SCOPE ALL searches every field and the document's content.
+const findWrap = $("#find-wrap");
+const findChip = $("#find-chip");
+const findChipLabel = $("#find-chip-label");
+const findClear = $("#find-clear");
+const findRow = $("#find-row");
+const findInput = $("#find-input");
+const findHint = $("#find-hint");
+const FIND_HINT = "<kbd>↵</kbd> adds FIND (… SCOPE ALL) to the query";
+
+// VQL string literals escape with a backslash.
+function vqlLiteral(text) {
+  return `'${String(text).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+}
+
+function vqlLiteralText(tok) {
+  return tok.replace(/^'|'$/g, "").replace(/\\(.)/g, "$1");
+}
+
+// The query's top-level FIND clause: where it starts and ends, and its first
+// search term. Null when there's none.
+function vqlFindClause(q) {
+  const toks = vqlTokens(q || "");
+  for (let i = 0; i < toks.length; i++) {
+    if (toks[i].depth !== 0 || !/^find$/i.test(toks[i].t)) continue;
+    const open = toks[i + 1];
+    if (!open || open.t !== "(") return { start: toks[i].at, end: toks[i].end, term: "" };
+    let end = q.length;
+    for (let j = i + 2; j < toks.length; j++) {
+      if (toks[j].t === ")" && toks[j].depth === 0) {
+        end = toks[j].end;
+        break;
+      }
+    }
+    const lit = toks.find((x) => x.at > open.at && x.at < end && x.t.startsWith("'"));
+    return { start: toks[i].at, end, term: lit ? vqlLiteralText(lit.t) : "" };
+  }
+  return null;
+}
+
+// Puts the whole query in the editor, caret after `caret`, as the other
+// helpers do.
+function setQueryText(text, caret = text.length) {
+  vqlInput.value = text;
+  vqlInput.setSelectionRange(caret, caret);
+  historyNavIndex = -1;
+  editorChanged();
+}
+
+function paintFindChip() {
+  const clause = vqlFindClause(vqlInput.value);
+  const on = !!clause && findRow.hidden;
+  const term = clause?.term || "";
+  findWrap.classList.toggle("on", on);
+  findClear.hidden = !on;
+  // The term in a span of its own, so a narrow toolbar can drop it.
+  const label = on && term
+    ? `<span class="find-word">FIND</span> <span class="find-term">${esc(term)}</span>`
+    : '<span class="find-word">FIND</span>';
+  // Only when it changes: replacing the spans under a click in progress would
+  // leave its target outside the page.
+  if (findChipLabel.innerHTML !== label) findChipLabel.innerHTML = label;
+  findChip.title = on
+    ? `Searching every field and the content for “${term}”. Click to change it.`
+    : "Search every field and the content (FIND … SCOPE ALL)";
+}
+
+function setFindHint(text, error = false) {
+  if (error) findHint.textContent = text;
+  else findHint.innerHTML = text;
+  findHint.classList.toggle("error", error);
+}
+
+function setFindOpen(open) {
+  if (open && !insertRow.hidden) setInsertOpen(false);
+  findRow.hidden = !open;
+  operatorBar.classList.toggle("finding", open);
+  findChip.setAttribute("aria-expanded", String(open));
+  if (open) {
+    hideAc();
+    findInput.value = vqlFindClause(vqlInput.value)?.term || "";
+    setFindHint(FIND_HINT);
+    findInput.focus();
+    findInput.select();
+  }
+  paintFindChip();
+}
+
+// Enter, or the FIND button again with something typed: the term goes into
+// the query, replacing a FIND already there. An empty field takes the FIND out.
+function submitFind() {
+  const term = findInput.value.trim();
+  const q = vqlInput.value;
+  const existing = vqlFindClause(q);
+  if (!term) {
+    if (existing) removeFind();
+    setFindOpen(false);
+    vqlInput.focus();
+    return;
+  }
+  // Nothing written yet: a search of documents.
+  if (!q.trim()) {
+    setFindOpen(false);
+    setQueryText(`SELECT id FROM documents\nFIND (${vqlLiteral(term)} SCOPE ALL)`);
+    vqlInput.focus();
+    return;
+  }
+  const shape = vqlShape(q);
+  if (!existing && shape.targetEnd < 0) {
+    setFindHint("Write the query's FROM first: FIND searches what the query is FROM.", true);
+    return;
+  }
+  const target = modelObject(shape.target);
+  if (target?.dataStore === "raw") {
+    setFindHint(`FIND can't search ${target.name}: it's a raw object.`, true);
+    return;
+  }
+  if (target?.kind === "target") {
+    setFindHint(`FIND searches documents and Vault objects, not ${target.name}.`, true);
+    return;
+  }
+  const clause = `FIND (${vqlLiteral(term)} SCOPE ALL)`;
+  let next;
+  let caret;
+  if (existing) {
+    next = q.slice(0, existing.start) + clause + q.slice(existing.end);
+    caret = existing.start + clause.length;
+  } else {
+    // On its own line after the target, ahead of WHERE and the rest, which
+    // is where VQL wants it.
+    next = `${q.slice(0, shape.targetEnd)}\n${clause}${q.slice(shape.targetEnd)}`;
+    caret = shape.targetEnd + 1 + clause.length;
+  }
+  setFindOpen(false);
+  setQueryText(next, caret);
+  vqlInput.focus();
+}
+
+// The ×: the clause goes, with the line break or spaces in front of it.
+function removeFind() {
+  const q = vqlInput.value;
+  const clause = vqlFindClause(q);
+  if (!clause) return;
+  let start = clause.start;
+  while (start > 0 && /[ \t]/.test(q[start - 1])) start--;
+  if (q[start - 1] === "\n") start--;
+  setQueryText(q.slice(0, start) + q.slice(clause.end), start);
+}
+
+// The pill opens the field; with something typed in it, the pill again does
+// what Enter does.
+findChip.addEventListener("click", () => {
+  if (!findRow.hidden && findInput.value.trim()) submitFind();
+  else setFindOpen(findRow.hidden);
+});
+findClear.addEventListener("click", () => {
+  removeFind();
+  vqlInput.focus();
+});
+findInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    submitFind();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    setFindOpen(false);
+    findChip.focus();
+  }
+});
+findInput.addEventListener("input", () => {
+  if (findHint.classList.contains("error")) setFindHint(FIND_HINT);
+});
+
+// A click anywhere else closes the field without writing anything. The
+// click's own path, not its target's ancestors now: the pill may have redrawn
+// what was clicked by the time this runs.
+document.addEventListener("click", (e) => {
+  if (findRow.hidden) return;
+  const path = e.composedPath();
+  if (!path.includes(findRow) && !path.includes(findWrap)) setFindOpen(false);
+});
+
+// The pill follows the query however it changes: typed, loaded from History,
+// a tab switch, Format, Clear. Most of those set the textarea's value
+// directly, which fires no event, so the setter on this one element is
+// wrapped to repaint the pill too.
+{
+  const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+  Object.defineProperty(vqlInput, "value", {
+    configurable: true,
+    get() {
+      return desc.get.call(this);
+    },
+    set(v) {
+      desc.set.call(this, v);
+      queueMicrotask(paintFindChip);
+    },
+  });
+}
+vqlInput.addEventListener("input", paintFindChip);
+// After the whole script has run: the tokenizer's patterns are defined further down.
+queueMicrotask(paintFindChip);
 
 // ===================== QUERY CLAUSES =====================
 // Used by the error hints to read what a failed query asked for.
@@ -888,6 +1093,10 @@ async function runQuery() {
   // What has to be fetched to hand back `rowCap` rows after skipping.
   const userLimit = rowCap != null ? rowCap + skipRows : null;
   const baseQuery = stripVqlTrailingPaging(raw);
+  // Its metadata decides Names/Labels and what can be edited.
+  const runTarget = modelObject(vqlShape(baseQuery).target);
+  if (runTarget && !runTarget.checkedAt) await Promise.race([touchModelObjects([runTarget.name]), sleep(2500)]);
+  else if (runTarget) touchModelObjects([runTarget.name]);
   const startTime = performance.now();
   lastRunQuery = raw;
   resultValues = null;
@@ -1193,7 +1402,7 @@ function setResultsShown(on) {
 // reference.
 const VALUE_MODES = ["names", "labels"];
 // What the toggle calls each mode.
-const VALUE_MODE_LABELS = { names: "Field Names", labels: "Field Values" };
+const VALUE_MODE_LABELS = { names: "Field Names", labels: "Field Labels" };
 let valueMode = "names";
 
 // What the last run applied — which columns came back rewritten, and how —
@@ -1316,15 +1525,15 @@ function isWrappedColumn(key) {
 function paintValueMode() {
   const names = valueMode === "names";
   valueChipLabel.textContent = VALUE_MODE_LABELS[valueMode].toUpperCase();
-  // Field Values reads as switched on (see .value-chip.on).
+  // Field Labels reads as switched on (see .value-chip.on).
   valueField.classList.toggle("on", !names);
   const tip = names
     ? "Showing field names: picklist, lifecycle state and type values as VQL writes them " +
-      "(approved__c). Click for field values, as the Vault UI shows them (Approved)."
-    : "Showing field values: picklist, lifecycle state and type values as the Vault UI shows " +
+      "(approved__c). Click for field labels, as the Vault UI shows them (Approved)."
+    : "Showing field labels: picklist, lifecycle state and type values as the Vault UI shows " +
       "them (Approved). Click for field names, as VQL writes them (approved__c).";
   valueField.title = `${tip} Documents get TONAME(), objects TOLABEL(). Changing it runs the shown results again.`;
-  valueField.setAttribute("aria-label", `${VALUE_MODE_LABELS[valueMode]}. ${names ? "Click for field values." : "Click for field names."}`);
+  valueField.setAttribute("aria-label", `${VALUE_MODE_LABELS[valueMode]}. ${names ? "Click for field labels." : "Click for field names."}`);
 }
 
 function setValueMode(mode) {
@@ -1702,6 +1911,7 @@ function renderHistory() {
     return;
   }
   historyList.innerHTML = state.history
+    .slice(0, HISTORY_POPOVER_LIMIT)
     .map(
       (h, i) =>
         `<div class="history-item" data-index="${i}" title="${esc(h.query)}">${esc(h.query)}</div>`
@@ -1737,171 +1947,516 @@ clearHistoryBtn.addEventListener("click", () => {
 });
 
 // ===================== DATA MODEL =====================
-// The chip is the only load affordance and the only readout of model state, so
-// it carries all four phases: idle, loading (with progress), loaded, failed.
-let modelLoading = false;
+// ---- Loading by itself ---------------------------------------------------------
+// Nothing here waits for a click. On connect the saved copy shows at once and
+// the object list is read again (one call). Objects the editor, autocomplete or
+// the Data model panel need are fetched straight away; the rest are filled in
+// one call at a time in the background, slowly enough to leave the vault's
+// shared rate limit to everyone else. Each object remembers when it was
+// fetched, and one used after FIELD_DEFS_MAX_AGE is fetched again. Document
+// types work the same way from their tab, and their record counts refresh
+// while the tab is open once they're COUNTS_MAX_AGE old. ↻ forces either.
+const FIELD_DEFS_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const COUNTS_MAX_AGE = 24 * 60 * 60 * 1000;
+const SYNC_GAP_MS = 1500;          // background calls: at most one per gap
+const SYNC_FORCED_GAP_MS = 200;    // ...and after ↻, which the user asked for
+const SYNC_BUDGET_FLOOR = 0.25;    // background work stops below this share of the burst limit
+const SYNC_BACKOFF_MS = 60000;     // ...and looks again after this long
+const SYNC_LEASE_MS = 15000;
+// Fetched by a version too old to say when: kept, but due.
+const CHECKED_LONG_AGO = 1;
+const VIEW_ID = Math.random().toString(36).slice(2);
 
-// Both loaders — the data model and the document types — are long, progress-
-// bearing fetches, so they share one chip with four phases. Parameterised rather
-// than duplicated so the two can't drift apart.
-function applyChipState(chip, labelEl, phase, labels, opts = {}) {
-  chip.classList.remove("loading", "loaded", "failed");
-  chip.style.backgroundImage = "";
-
-  if (phase === "loading") {
-    const { done = 0, total = 0 } = opts;
-    const pct = total ? Math.round((done / total) * 100) : 0;
-    chip.classList.add("loading");
-    chip.style.backgroundImage =
-      `linear-gradient(90deg, rgba(192,138,46,.45) ${pct}%, transparent ${pct}%)`;
-    labelEl.textContent = total ? `${done}/${total}` : "LOADING";
-    chip.title = opts.title || labels.loadingTitle;
-  } else if (phase === "loaded") {
-    chip.classList.add("loaded");
-    labelEl.textContent = labels.loaded;
-    chip.title = opts.title || labels.loadedTitle;
-  } else if (phase === "failed") {
-    chip.classList.add("failed");
-    labelEl.textContent = "FAILED";
-    chip.title = opts.title || "Load failed — click to retry";
-  } else {
-    labelEl.textContent = labels.idle;
-    chip.title = labels.idleTitle;
-  }
-}
-
-const MODEL_CHIP_LABELS = {
-  idle: "LOAD MODEL",
-  idleTitle: "Load data model — enables autocomplete",
-  loading: "LOADING",
-  loadingTitle: "Loading data model",
-  loaded: "MODELS",
-  loadedTitle: "Reload data model",
+const sync = {
+  epoch: 0,              // bumped per vault; work for an older one stops
+  burst: null,           // { limit, remaining, at } from the last response
+  queue: [],             // background jobs, in order
+  queued: new Set(),
+  pumping: false,
+  lastCall: 0,
+  waiting: false,        // held back by the rate limit
+  modelListAt: null,     // the object list, read this session
+  modelListing: false,
+  modelError: null,
+  typesListAt: null,
+  typesListing: false,
+  typesError: null,
+  counting: false,
+  countDone: 0,
+  countTotal: 0,
+  // When ↻ was pressed: anything fetched or counted before then is due again.
+  modelForcedAt: 0,
+  typesForcedAt: 0,
+  fast: false,           // a ↻ refresh is running: shorter gaps until the queue empties
 };
 
-function setChipState(phase, opts = {}) {
-  applyChipState(modelChip, modelChipLabel, phase, MODEL_CHIP_LABELS, opts);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function noteBurst(b) {
+  if (b && Number.isFinite(b.remaining)) sync.burst = { limit: b.limit, remaining: b.remaining, at: Date.now() };
 }
 
-modelChip.addEventListener("click", () => {
-  if (modelLoading) return;
-  loadDataModel();
+// A reading older than the back-off is stale: the next call brings a new one.
+function budgetLow() {
+  const b = sync.burst;
+  return !!(b && b.limit && Date.now() - b.at < SYNC_BACKOFF_MS && b.remaining < b.limit * SYNC_BUDGET_FLOOR);
+}
+
+function isStale(ts, maxAge) {
+  return !ts || ts <= CHECKED_LONG_AGO || Date.now() - ts > maxAge;
+}
+
+// Due for the background fill: never fetched, fetched too long ago to say
+// when, or before ↻.
+function modelDue(o) {
+  return !o.checkedAt || o.checkedAt <= CHECKED_LONG_AGO || o.checkedAt < sync.modelForcedAt;
+}
+
+function typeDue(t) {
+  return !t.checkedAt || t.checkedAt <= CHECKED_LONG_AGO || t.checkedAt < sync.typesForcedAt;
+}
+
+function countDue(t) {
+  return isStale(t.countedAt, COUNTS_MAX_AGE) || t.countedAt < sync.typesForcedAt;
+}
+
+// "just now", "5 min ago", "3 h ago", "2 days ago".
+function ageText(ts) {
+  if (!ts) return "";
+  const mins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} days ago`;
+}
+
+// One view per vault does the background filling: the panel and the full
+// window share what they fetch through storage, so two would only double it.
+async function holdSyncLease() {
+  if (!state.domain) return false;
+  const key = `syncLease:${state.domain}`;
+  const now = Date.now();
+  const cur = (await chrome.storage.local.get(key))[key];
+  if (cur && cur.id !== VIEW_ID && cur.until > now) return false;
+  await chrome.storage.local.set({ [key]: { id: VIEW_ID, until: now + SYNC_LEASE_MS } });
+  return true;
+}
+
+async function takeSyncLease() {
+  if (state.domain) await chrome.storage.local.set({ [`syncLease:${state.domain}`]: { id: VIEW_ID, until: Date.now() + SYNC_LEASE_MS } });
+}
+
+function resetSync() {
+  sync.epoch++;
+  sync.queue = [];
+  sync.queued.clear();
+  Object.assign(sync, {
+    waiting: false, modelListAt: null, modelListing: false, modelError: null,
+    typesListAt: null, typesListing: false, typesError: null,
+    counting: false, countDone: 0, countTotal: 0, modelForcedAt: 0, typesForcedAt: 0, fast: false,
+  });
+  modelPending.clear();
+  dtPending.clear();
+}
+
+// Background jobs: { key, needed(), run() }. A job no longer needed when its
+// turn comes (another view fetched it, the user's click did) costs no call.
+function syncEnqueue(job) {
+  if (sync.queued.has(job.key)) return;
+  sync.queued.add(job.key);
+  sync.queue.push(job);
+  syncPump();
+}
+
+async function syncPump() {
+  if (sync.pumping) return;
+  sync.pumping = true;
+  const epoch = sync.epoch;
+  try {
+    while (sync.queue.length && epoch === sync.epoch && state.sessionId) {
+      const job = sync.queue[0];
+      if (!job.needed()) {
+        sync.queue.shift();
+        sync.queued.delete(job.key);
+        continue;
+      }
+      if (!(await syncSlot(epoch))) break;
+      if (sync.queue[0] !== job) continue;
+      sync.queue.shift();
+      sync.queued.delete(job.key);
+      if (!job.needed()) continue;
+      try {
+        await job.run();
+      } catch (e) {
+        /* the job keeps its own failure */
+      }
+      sync.lastCall = Date.now();
+    }
+  } finally {
+    sync.pumping = false;
+    if (!sync.queue.length) sync.fast = false;
+    if (epoch === sync.epoch) paintSync();
+  }
+}
+
+// Waits for the next background call: the gap since the last one, none of the
+// user's queries running, room in the vault's rate limit, and the lease.
+async function syncSlot(epoch) {
+  for (;;) {
+    if (epoch !== sync.epoch || !state.sessionId) return false;
+    const wait = sync.lastCall + (sync.fast ? SYNC_FORCED_GAP_MS : SYNC_GAP_MS) - Date.now();
+    if (wait > 0) {
+      await sleep(wait);
+      continue;
+    }
+    if (activeQueryToken) {
+      await sleep(500);
+      continue;
+    }
+    if (budgetLow()) {
+      sync.waiting = true;
+      paintSync();
+      await sleep(SYNC_BACKOFF_MS);
+      sync.waiting = false;
+      continue;
+    }
+    if (!(await holdSyncLease())) {
+      await sleep(SYNC_LEASE_MS / 3);
+      continue;
+    }
+    return true;
+  }
+}
+
+// ---- The data model --------------------------------------------------------------
+const modelPending = new Map();   // lower-case name -> the fetch in flight
+
+// A saved model made ready for this code: every object has a field list and
+// the time it was fetched. Earlier versions saved the whole model at once, so
+// their objects count as fetched when it was saved; those from before
+// relationships were kept count as long ago.
+function normalizeModel(model, savedAt) {
+  const t = Date.parse(savedAt || "") || CHECKED_LONG_AGO;
+  for (const o of model.objects || []) {
+    if (!Array.isArray(o.fields)) o.fields = [];
+    if (o.checkedAt === undefined) o.checkedAt = o.relationships ? t : o.fields.length ? CHECKED_LONG_AGO : null;
+  }
+  return model;
+}
+
+// Takes the newer copy of each object another view saved, for the objects
+// this view lists (a removal it saw stays removed). Returns how many changed.
+function mergeModel(into, from) {
+  const theirs = new Map((from?.objects || []).map((o) => [o.name.toLowerCase(), o]));
+  let changed = 0;
+  into.objects.forEach((o, i) => {
+    const t = theirs.get(o.name.toLowerCase());
+    if (t && (t.checkedAt || 0) > (o.checkedAt || 0)) {
+      into.objects[i] = t;
+      changed++;
+    }
+  });
+  return changed;
+}
+
+// The object list: Vault objects, documents, and on v25.2+ the other query
+// targets SHOW TARGETS lists. Objects already known keep what they hold.
+async function syncModelList(force = false) {
+  if (!state.sessionId || sync.modelListing) return;
+  const epoch = sync.epoch;
+  sync.modelListing = true;
+  sync.modelError = null;
+  paintSync();
+  try {
+    const res = await apiCall("/metadata/vobjects");
+    if (epoch !== sync.epoch) return;
+    if (!apiOk(res)) {
+      sync.modelError = apiErr(res);
+      return;
+    }
+    const listed = (res.data?.objects || [])
+      .map((o) => ({ name: o.name || o.object_name || o.name__v, label: o.label || o.label__v || "" }))
+      .filter((o) => o.name);
+    if (!listed.some((o) => o.name === "documents")) listed.unshift({ name: "documents", label: "Documents" });
+    const names = new Set(listed.map((o) => o.name.toLowerCase()));
+    const prev = state.dataModel?.objects || [];
+    let targets = prev.filter((o) => o.kind === "target");
+    if (apiAtLeast("v25.2")) {
+      const rows = await showQuery("SHOW TARGETS");
+      if (epoch !== sync.epoch) return;
+      // A failed SHOW keeps the targets already known rather than dropping them.
+      if (rows) {
+        targets = rows
+          .filter((t) => t?.name && !names.has(t.name.toLowerCase()))
+          .slice(0, SHOW_TARGETS_MAX)
+          .map((t) => ({ name: t.name, label: t.label && t.label !== t.name ? t.label : "", kind: "target" }));
+      }
+    }
+    const byName = new Map(prev.map((o) => [o.name.toLowerCase(), o]));
+    const objects = [...listed, ...targets].map((x) => {
+      const old = byName.get(x.name.toLowerCase());
+      if (old) {
+        if (x.label) old.label = x.label;
+        return old;
+      }
+      const fresh = { name: x.name, label: x.label || "", fields: [], checkedAt: null };
+      if (x.kind) fresh.kind = x.kind;
+      return fresh;
+    });
+    objects.sort((a, b) => a.name.localeCompare(b.name));
+    // ↻: everything is due, so the fill fetches it all again; what's there
+    // stays usable meanwhile.
+    if (force) sync.modelForcedAt = Date.now();
+    const first = !state.dataModel;
+    state.dataModel = { objects };
+    sync.modelListAt = Date.now();
+    onDataModelLoaded();
+    if (first || force) scheduleModelSave(0);
+    queueModelFill();
+  } finally {
+    sync.modelListing = false;
+    if (epoch === sync.epoch) paintSync();
+  }
+}
+
+// Every object not fetched yet, or due, the everyday ones first and the other
+// query targets last.
+function queueModelFill() {
+  if (!state.dataModel) return;
+  const due = modelDue;
+  const rank = (o) => {
+    const i = DM_DEFAULT_OBJECTS.indexOf(o.name.toLowerCase());
+    if (i >= 0) return i;
+    if (dmExtra.includes(o.name)) return 50;
+    return o.kind === "target" ? 200 : 100;
+  };
+  const todo = state.dataModel.objects.filter(due).sort((a, b) => rank(a) - rank(b));
+  for (const o of todo) {
+    const n = o.name.toLowerCase();
+    syncEnqueue({
+      key: `object:${n}`,
+      needed: () => {
+        const m = modelObject(n);
+        return !!m && due(m) && !modelPending.has(n);
+      },
+      run: () => refreshModelObject(n),
+    });
+  }
+}
+
+// An object's metadata as the old full load fetched it: one metadata call, or
+// two SHOW queries for a query target that isn't a Vault object.
+async function fetchModelObject(o) {
+  if (o.kind === "target") {
+    const [fields, rels] = await Promise.all([
+      showQuery(`SHOW FIELDS FROM ${o.name}`),
+      showQuery(`SHOW RELATIONSHIPS FROM ${o.name}`),
+    ]);
+    if (!fields && !rels) return { error: "Vault didn't describe it" };
+    return { fields: showFields(o.name, fields), relationships: showRelationships(rels), elsewhere: [] };
+  }
+  const res = await apiCall(
+    o.name === "documents" ? "/metadata/objects/documents/properties" : `/metadata/vobjects/${encodeURIComponent(o.name)}`
+  );
+  if (!apiOk(res)) return { error: apiErr(res) };
+  const rels = extractRelationships(res);
+  const out = {
+    fields: extractFields(o.name, res),
+    relationships: rels.own,
+    elsewhere: rels.elsewhere,
+    // "raw" objects don't take TOLABEL(); Names/Labels skips them.
+    dataStore: res.data?.object?.data_store,
+    label: res.data?.object?.label || "",
+  };
+  // v25.2+: documents' relationships with their exact names, which the
+  // metadata doesn't all carry.
+  if (o.name === "documents" && apiAtLeast("v25.2")) {
+    for (const r of showRelationships(await showQuery("SHOW RELATIONSHIPS FROM documents"))) {
+      if (!out.relationships.some((x) => x.name.toLowerCase() === r.name.toLowerCase())) out.relationships.push(r);
+    }
+  }
+  return out;
+}
+
+// Fetches one object now (one fetch per object at a time) into the model.
+function refreshModelObject(name) {
+  const n = String(name || "").toLowerCase();
+  if (modelPending.has(n)) return modelPending.get(n);
+  const o = modelObject(n);
+  if (!o || !state.sessionId) return Promise.resolve();
+  const epoch = sync.epoch;
+  const job = fetchModelObject(o)
+    .then((info) => {
+      if (epoch === sync.epoch) applyModelObject(o.name, info);
+    })
+    .catch(() => {})
+    .finally(() => modelPending.delete(n));
+  modelPending.set(n, job);
+  return job;
+}
+
+function applyModelObject(name, info) {
+  const o = modelObject(name);
+  if (!o) return;
+  o.checkedAt = Date.now();
+  if (info.error) {
+    // Counted as fetched, so a broken object isn't asked about on every turn;
+    // its age or ↻ tries again.
+    o.fetchError = info.error;
+  } else {
+    // Relationships other objects pointed in stay, unless this object's own
+    // metadata now names them itself.
+    const linked = (o.relationships || []).filter((r) => r.linked);
+    o.fields = info.fields;
+    o.relationships = info.relationships;
+    for (const r of linked) {
+      if (!o.relationships.some((x) => x.name.toLowerCase() === r.name.toLowerCase())) o.relationships.push(r);
+    }
+    if (info.dataStore !== undefined) o.dataStore = info.dataStore;
+    if (info.label && !o.label) o.label = info.label;
+    delete o.fetchError;
+    linkInbound(o, info.elsewhere);
+  }
+  modelChanged(o.name);
+}
+
+// The far side of a relationship one object's metadata shows: a field's
+// inbound name on the object it points at, and documents' document_x__vr on x.
+function linkInbound(o, elsewhere) {
+  const addTo = (targetName, rel) => {
+    const t = modelObject(targetName);
+    if (!t) return;
+    t.relationships = t.relationships || [];
+    if (!t.relationships.some((r) => r.name.toLowerCase() === rel.name.toLowerCase())) t.relationships.push({ ...rel, linked: true });
+  };
+  for (const e of elsewhere || []) addTo(e.owner, { name: e.name, dir: "in", target: o.name, field: e.field, label: e.label });
+  if (o.name === "documents") {
+    for (const r of o.relationships || []) {
+      if (r.target && !r.linked) addTo(r.target, { name: r.name, dir: "in", target: "documents", field: r.field, label: r.label });
+    }
+  }
+}
+
+// What the editor, autocomplete or the panel is about to use: fetched now when
+// missing, again when older than FIELD_DEFS_MAX_AGE. Resolves once the missing
+// ones are in; an old copy is used while its refresh runs.
+function touchModelObjects(names) {
+  const waits = [];
+  for (const name of new Set((names || []).filter(Boolean).map((x) => String(x).toLowerCase()))) {
+    const o = modelObject(name);
+    if (!o) continue;
+    if (!o.checkedAt) waits.push(refreshModelObject(o.name));
+    else if (isStale(o.checkedAt, FIELD_DEFS_MAX_AGE) || o.checkedAt < sync.modelForcedAt) refreshModelObject(o.name);
+  }
+  return Promise.all(waits);
+}
+
+// After objects change: save before long, and repaint what shows them.
+let modelPaintTimer = null;
+const modelPaintNames = new Set();
+function modelChanged(name, save = true) {
+  if (save) scheduleModelSave();
+  if (name) modelPaintNames.add(name);
+  else modelPaintNames.add("*");
+  if (modelPaintTimer) return;
+  modelPaintTimer = setTimeout(() => {
+    modelPaintTimer = null;
+    const names = [...modelPaintNames];
+    modelPaintNames.clear();
+    paintModelCounts();
+    paintSync();
+    if (!state.dataModel || dmSearch.value.trim()) return;
+    // The list is redrawn only when it shows a changed object, so a click
+    // isn't lost to a redraw it had nothing to do with.
+    if (dmAllObjects || names.includes("*") || names.includes(dmSelected)) renderDataModelTree("");
+    else dmObjects.innerHTML = dmChipsHtml();
+  }, 400);
+}
+
+let modelSaveTimer = null;
+function scheduleModelSave(delay = 10000) {
+  // One already waiting saves these changes too, unless this one is sooner.
+  if (modelSaveTimer && delay > 0) return;
+  clearTimeout(modelSaveTimer);
+  modelSaveTimer = setTimeout(saveModelNow, delay);
+}
+
+async function saveModelNow() {
+  clearTimeout(modelSaveTimer);
+  modelSaveTimer = null;
+  const domain = state.domain;
+  if (!domain || !state.dataModel) return;
+  try {
+    // Another view may have saved objects this one hasn't fetched.
+    const stored = await readVaultCache("dataModels", domain);
+    if (domain !== state.domain || !state.dataModel) return;
+    if (stored?.model) mergeModel(state.dataModel, normalizeModel(stored.model, stored.time));
+    dataModelTime = new Date().toISOString();
+    await saveVaultCache("dataModels", domain, { model: state.dataModel, time: dataModelTime });
+  } catch (e) {
+    sync.modelError = `not saved for next time: ${e.message}`;
+    paintSync();
+  }
+}
+
+// Leaving with a save pending would cost the next view those fetches.
+window.addEventListener("pagehide", () => {
+  if (modelSaveTimer) saveModelNow();
+  if (typesSaveTimer) saveDocTypes();
 });
 
-async function loadDataModel() {
-  if (!state.sessionId) {
-    dmTree.innerHTML = '<div class="dm-empty">Connect to a Vault first.</div>';
-    return;
+// ↻ beside the Data model title: the list again, and every object fetched
+// again in the background, the ones in use first.
+dmRefresh.addEventListener("click", async () => {
+  if (!state.sessionId || sync.modelListing) return;
+  sync.fast = true;
+  await takeSyncLease();
+  await syncModelList(true);
+  touchModelObjects([dmSelected, vqlShape(vqlInput.value).target]);
+});
+
+// The Data model's age line: what's loading, or how old the oldest object is.
+function paintModelSync() {
+  const objs = state.dataModel?.objects || [];
+  const total = objs.length;
+  const done = objs.filter((o) => !modelDue(o)).length;
+  const filling = !!state.sessionId && total > 0 && done < total;
+  let text = "";
+  if (!state.sessionId) text = "";
+  else if (sync.modelError) text = `couldn't check: ${sync.modelError}`;
+  else if (sync.modelListing && state.dataModel) text = sync.fast ? "refreshing…" : "checking…";
+  else if (filling) {
+    text = `${sync.modelForcedAt ? "refreshing" : "loading"} fields ${done.toLocaleString()} of ${total.toLocaleString()}` +
+      (sync.waiting ? " · waiting for the vault's rate limit" : "");
   }
-
-  modelLoading = true;
-  setChipState("loading", { title: "Fetching object list…" });
-  dmTree.innerHTML = "";
-
-  try {
-    // Step 1: Get all vobjects
-    const objListResult = await apiCall("/metadata/vobjects");
-    if (!objListResult.success) throw new Error(objListResult.error);
-
-    const objListData = objListResult.data;
-    let objectNames = [];
-
-    if (objListData.objects) {
-      objectNames = objListData.objects.map((o) => ({
-        name: o.name || o.object_name || o.name__v,
-        label: o.label || o.label__v || o.name || "",
-        url: o.url || "",
-      }));
-    }
-
-    // Also add "documents" as a queryable object (standard Vault object)
-    const hasDocuments = objectNames.some((o) => o.name === "documents");
-    if (!hasDocuments) {
-      objectNames.unshift({ name: "documents", label: "Documents", url: "" });
-    }
-
-    const total = objectNames.length;
-    setChipState("loading", { done: 0, total, title: `Loading fields for ${total} objects…` });
-
-    // Step 2: Fetch fields for each object in batches
-    const BATCH_SIZE = 5;
-    const objects = [];
-    let completed = 0;
-
-    for (let i = 0; i < objectNames.length; i += BATCH_SIZE) {
-      const batch = objectNames.slice(i, i + BATCH_SIZE);
-      const results = await Promise.all(
-        batch.map(async (obj) => {
-          try {
-            let endpoint;
-            if (obj.name === "documents") {
-              endpoint = "/metadata/objects/documents/properties";
-            } else {
-              endpoint = `/metadata/vobjects/${obj.name}`;
-            }
-            const res = await apiCall(endpoint);
-            return { obj, res };
-          } catch (e) {
-            return { obj, res: { success: false, error: e.message } };
-          }
-        })
-      );
-
-      for (const { obj, res } of results) {
-        completed++;
-        setChipState("loading", {
-          done: completed,
-          total,
-          title: `Loading fields… ${completed}/${total} (${obj.name})`,
-        });
-
-        const fields = extractFields(obj.name, res);
-        const rels = extractRelationships(res);
-        objects.push({
-          name: obj.name,
-          label: obj.label,
-          fields: fields,
-          relationships: rels.own,
-          inboundElsewhere: rels.elsewhere,
-          // "raw" objects don't take TOLABEL(); Names/Labels skips them.
-          dataStore: res.success ? res.data?.object?.data_store : undefined,
-        });
-      }
-    }
-
-    // v25.2+: SHOW lists what the metadata crawl can't see — users, groups,
-    // workflows, binders and the other non-object targets, and the documents
-    // relationships with their exact names. Then both ends get linked.
-    if (apiAtLeast("v25.2")) await addShowTargets(objects);
-    linkRelationships(objects);
-
-    // Sort objects alphabetically
-    objects.sort((a, b) => a.name.localeCompare(b.name));
-
-    state.dataModel = { objects };
-    const loadTime = new Date().toISOString();
-    // Save under the current vault domain so each instance has its own model,
-    // and the panel and the full window both start with it. A failed save only
-    // costs the next view; the model is loaded here either way.
-    let unsaved = null;
-    if (state.domain) {
-      try {
-        await saveVaultCache("dataModels", state.domain, { model: state.dataModel, time: loadTime });
-      } catch (e) {
-        unsaved = e;
-      }
-    }
-
-    onDataModelLoaded(loadTime);
-    if (unsaved) {
-      setChipState("loaded", { title: `Loaded, but not saved for next time: ${unsaved.message}` });
-    }
-  } catch (err) {
-    setChipState("failed", { title: `Load failed: ${err.message} — click to retry` });
-    dmTree.innerHTML = `<div class="dm-empty">Could not load the data model.<br />${esc(err.message)}</div>`;
-  } finally {
-    modelLoading = false;
+  else if (total) text = `checked ${ageText(Math.min(...objs.map((o) => o.checkedAt)))}`;
+  dmSync.textContent = text;
+  dmSync.classList.toggle("error", !!sync.modelError);
+  dmSync.title =
+    (sync.modelListAt ? `Object list checked ${ageText(sync.modelListAt)}. ` : "") +
+    "Fields load by themselves, the ones you use first, and are fetched again when used once they're over 7 days old. " +
+    "↻ checks everything again now.";
+  dmRefresh.disabled = !state.sessionId;
+  dmRefresh.classList.toggle("spinning", !!state.sessionId && sync.fast && (sync.modelListing || filling));
+  dmSyncBar.classList.toggle("hidden", !filling);
+  dmSyncBar.firstElementChild.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+  if (!state.dataModel) {
+    dmEmptyState.innerHTML = !state.sessionId
+      ? "Connect to a Vault to see its data model."
+      : sync.modelError
+        ? `Couldn't load the data model: ${esc(sync.modelError)} <button type="button" class="sync-retry" data-retry="model">Try again</button>`
+        : "Loading the data model…";
   }
+}
+
+dmEmptyState.addEventListener("click", (e) => {
+  if (e.target.closest('[data-retry="model"]')) syncModelList();
+});
+
+function paintSync() {
+  paintModelSync();
+  paintTypesSync();
 }
 
 function extractFields(objName, res) {
@@ -1981,29 +2536,6 @@ function extractRelationships(res) {
   return { own: [...own.values()], elsewhere };
 }
 
-// Fills in the far side of each relationship the crawl saw from one end only:
-// a field's inbound name on the object it points at, and documents'
-// document_x__vr on x.
-function linkRelationships(objects) {
-  const byName = new Map(objects.map((o) => [o.name.toLowerCase(), o]));
-  const addTo = (obj, rel) => {
-    if (!obj) return;
-    obj.relationships = obj.relationships || [];
-    if (!obj.relationships.some((r) => r.name.toLowerCase() === rel.name.toLowerCase())) obj.relationships.push(rel);
-  };
-  for (const o of objects) {
-    for (const e of o.inboundElsewhere || []) {
-      addTo(byName.get(e.owner.toLowerCase()), { name: e.name, dir: "in", target: o.name, field: e.field, label: e.label });
-    }
-    delete o.inboundElsewhere;
-    if (o.name === "documents") {
-      for (const r of o.relationships || []) {
-        if (r.target) addTo(byName.get(r.target.toLowerCase()), { name: r.name, dir: "in", target: "documents", field: r.field, label: r.label });
-      }
-    }
-  }
-}
-
 async function showQuery(q) {
   const res = await apiCall("/query", "POST", `q=${encodeURIComponent(q)}`);
   return apiOk(res) ? res.data?.data || [] : null;
@@ -2035,43 +2567,6 @@ function showFields(name, rows) {
     picklist: null,
     relationship: f.relationship_name || null,
   }));
-}
-
-async function addShowTargets(objects) {
-  const known = new Set(objects.map((o) => o.name.toLowerCase()));
-  const docs = objects.find((o) => o.name === "documents");
-  if (docs) {
-    const rels = await showQuery("SHOW RELATIONSHIPS FROM documents");
-    if (rels) {
-      for (const r of showRelationships(rels)) {
-        if (!docs.relationships.some((x) => x.name.toLowerCase() === r.name.toLowerCase())) docs.relationships.push(r);
-      }
-    }
-  }
-  const targets = await showQuery("SHOW TARGETS");
-  if (!targets) return;
-  const extra = targets.filter((t) => t?.name && !known.has(t.name.toLowerCase())).slice(0, SHOW_TARGETS_MAX);
-  let done = 0;
-  for (let i = 0; i < extra.length; i += 5) {
-    await Promise.all(
-      extra.slice(i, i + 5).map(async (t) => {
-        const [fields, rels] = await Promise.all([
-          showQuery(`SHOW FIELDS FROM ${t.name}`),
-          showQuery(`SHOW RELATIONSHIPS FROM ${t.name}`),
-        ]);
-        objects.push({
-          name: t.name,
-          label: t.label && t.label !== t.name ? t.label : "",
-          fields: showFields(t.name, fields),
-          relationships: showRelationships(rels),
-          // Not a Vault object: users, groups, workflows, binders and the like.
-          kind: "target",
-        });
-        done++;
-        setChipState("loading", { done, total: extra.length, title: `Other query targets… ${done}/${extra.length} (${t.name})` });
-      })
-    );
-  }
 }
 
 // A model object by name, any case; null for anything the model doesn't hold.
@@ -2151,10 +2646,11 @@ function plausibleTarget(n) {
 function needsLookup(name, trusted = false) {
   if (!name || !state.sessionId || !/^[a-z_][a-z0-9_]*$/i.test(name)) return false;
   const n = String(name).toLowerCase();
-  if (liveObjects.has(n) || liveObjectsPending.has(n)) return false;
-  if (!trusted && !plausibleTarget(n)) return false;
+  // An object the model lists is fetched into the model, once.
   const m = modelObject(n);
-  return !m || !m.relationships;
+  if (m) return !m.checkedAt && !modelPending.has(n);
+  if (liveObjects.has(n) || liveObjectsPending.has(n)) return false;
+  return trusted || plausibleTarget(n);
 }
 
 async function fetchObjectInfo(n) {
@@ -2172,8 +2668,10 @@ async function fetchObjectInfo(n) {
 
 // Looks the objects up (once each); resolves when all have answered.
 function ensureObjects(names) {
-  const jobs = [];
-  for (const name of new Set(names.filter(Boolean).map((x) => String(x).toLowerCase()))) {
+  const unique = [...new Set(names.filter(Boolean).map((x) => String(x).toLowerCase()))];
+  const jobs = [touchModelObjects(unique.filter((n) => modelObject(n)))];
+  for (const name of unique) {
+    if (modelObject(name)) continue;
     if (liveObjectsPending.has(name)) {
       jobs.push(liveObjectsPending.get(name));
       continue;
@@ -2235,24 +2733,21 @@ function forgetLiveObjects() {
 // storage.onChanged can be told from one made by another view.
 let dataModelTime = null;
 
+// timeStr: the saved copy this model is, when it came from storage.
 function onDataModelLoaded(timeStr) {
   if (!state.dataModel) return;
-  dataModelTime = timeStr || null;
-
-  const objCount = state.dataModel.objects.length;
-  const fieldCount = state.dataModel.objects.reduce((s, o) => s + o.fields.length, 0);
-  const loadedAt = timeStr
-    ? ` — loaded ${new Date(timeStr).toLocaleDateString()} ${new Date(timeStr).toLocaleTimeString()}`
-    : "";
-
-  dmCounts.textContent = `${objCount} objects · ${fieldCount.toLocaleString()} fields`;
-  const summary = `${objCount} objects · ${fieldCount.toLocaleString()} fields${loadedAt}`;
-  dmCounts.title = summary;
-  setChipState("loaded", { title: `${summary} — click to reload` });
-
+  if (timeStr !== undefined) dataModelTime = timeStr || null;
+  paintModelCounts();
+  paintSync();
   renderDataModelTree(dmSearch.value.trim().toLowerCase());
   // Untitled tabs are named after their object's label, which only the model has.
   if (WINDOW_MODE) renderQueryTabs();
+}
+
+function paintModelCounts() {
+  const objs = state.dataModel?.objects || [];
+  const fieldCount = objs.reduce((n, o) => n + o.fields.length, 0);
+  dmCounts.textContent = `${objs.length.toLocaleString()} objects · ${fieldCount.toLocaleString()} fields`;
 }
 
 // ===================== DATA MODEL =====================
@@ -2405,6 +2900,7 @@ function dmSelect(name, view = "fields") {
   dmView = view;
   dmAllObjects = false;
   dmPin(obj.name);
+  touchModelObjects([obj.name]);
   // Ranking needs usage data; ask for it the moment the object is shown.
   scheduleFieldStats(obj.name);
 }
@@ -2568,7 +3064,7 @@ function paintDmSwitch(obj) {
     btn.querySelector(".dm-n").textContent = count[v] == null ? "" : count[v].toLocaleString();
     btn.disabled = v !== "fields" && !count[v];
     // A model saved before relationships were kept has none to show yet.
-    btn.title = count[v] == null ? "Reload the data model to see relationships" : "";
+    btn.title = count[v] == null ? "Not loaded yet" : "";
   }
 }
 
@@ -2640,7 +3136,12 @@ function renderDataModelTree(filter) {
   dmSwitch.classList.remove("hidden");
 
   let html;
-  if (dmView === "fields") {
+  if (dmView === "fields" && (!obj.checkedAt || (obj.fetchError && !obj.fields.length))) {
+    html = obj.checkedAt
+      ? `<div class="dm-empty">Couldn't load ${esc(obj.name)}: ${esc(obj.fetchError)}</div>`
+      : `<div class="dm-empty">Loading the fields of ${esc(obj.label || obj.name)}…</div>`;
+    dmShowing.textContent = "";
+  } else if (dmView === "fields") {
     const ranked = [...obj.fields].sort(fieldRanker(obj));
     html = ranked.map((f) => fieldRowHtml(f, obj.name, "")).join("") ||
       `<div class="dm-empty">No fields known for ${esc(obj.name)}.</div>`;
@@ -3567,6 +4068,21 @@ function renderTable(rows) {
     return;
   }
 
+  // The panel pages too: a fetch-all query can return thousands of rows.
+  resultsView.page = 0;
+  paintPanelPage();
+}
+
+// The panel's table: RESULTS_PAGE rows of queryRows at a time, under the same
+// range and Prev/Next as the full window's footer. Row numbers stay those of
+// queryRows, so edits on one page are still pending on another.
+function paintPanelPage() {
+  const rows = queryRows;
+  const keys = resultKeys;
+  const pages = Math.max(1, Math.ceil(rows.length / RESULTS_PAGE));
+  resultsView.page = Math.min(Math.max(0, resultsView.page), pages - 1);
+  const start = resultsView.page * RESULTS_PAGE;
+  const end = Math.min(rows.length, start + RESULTS_PAGE);
   const editableFields = getEditableFields(queryObjectName);
   const hasId = keys.includes("id");
   let html = '<table class="results-table"><thead><tr>';
@@ -3576,7 +4092,7 @@ function renderTable(rows) {
   }
   html += "</tr></thead><tbody>";
 
-  for (let ri = 0; ri < rows.length; ri++) {
+  for (let ri = start; ri < end; ri++) {
     const row = rows[ri];
     html += `<tr data-row="${ri}">`;
     for (const key of keys) {
@@ -3585,12 +4101,14 @@ function renderTable(rows) {
         html += subCellHtml(ri, key, val);
         continue;
       }
-      const display = displayValue(val);
+      const edit = pendingEdits[`${ri}:${key}`];
+      const display = edit ? edit.newVal : displayValue(val);
       const isId = key === "id";
       const canEdit = hasId && cellEditable(ri, key, editableFields);
 
       if (canEdit) {
-        html += `<td class="editable" data-row="${ri}" data-field="${esc(key)}" title="Click to edit">${esc(display)}</td>`;
+        // An edit made before paging away and back still shows, marked.
+        html += `<td class="editable${edit ? " dirty" : ""}" data-row="${ri}" data-field="${esc(key)}" title="Click to edit">${esc(display)}</td>`;
       } else if (isId) {
         html += `<td class="col-id" title="${esc(display)}">${esc(display)}</td>`;
       } else {
@@ -3611,6 +4129,11 @@ function renderTable(rows) {
   }
 
   resultsContainer.innerHTML = html;
+
+  resultsFooter.classList.toggle("paged", pages > 1);
+  resultsRange.textContent = `Showing ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${rows.length.toLocaleString()}`;
+  pagePrev.disabled = resultsView.page === 0;
+  pageNext.disabled = resultsView.page >= pages - 1;
 
   // Grow with the result set up to RESULT_ROW_CAP rows, then scroll.
   resultsContainer.style.maxHeight = "";
@@ -3747,7 +4270,7 @@ discardBtn.addEventListener("click", () => {
     paintResultsView();
     renderInspector();
   } else if (queryRows.length > 0) {
-    renderTable(queryRows);
+    paintPanelPage();
   }
   updateSaveBar();
 });
@@ -3858,23 +4381,20 @@ function showSaveError(msg) {
 // Two calls to enumerate: list the types, then follow each type's own link to
 // get its properties[] — Vault has no page-layout endpoint, so the field set
 // comes back as part of the type.
-const dtChip = $("#dt-chip");
-const dtChipLabel = $("#dt-chip-label");
 const dtLayout = $("#dt-layout");
 const dtEmpty = $("#dt-empty");
-const dtCountBtn = $("#dt-count-btn");
-const dtCountLabel = $("#dt-count-label");
+const dtSync = $("#dt-sync");
+const dtRefresh = $("#dt-refresh");
+const dtSyncBar = $("#dt-sync-bar");
 const dtTree = $("#dt-tree");
 const dtBreadcrumb = $("#dt-breadcrumb");
 const dtFields = $("#dt-fields");
 
-const DT_BATCH = 5;          // concurrent type fetches
+const DT_BATCH = 3;          // counts at a time
 
 let docTypes = [];
-let docTypesTime = null;     // when the types on screen were loaded or counted
+let docTypesTime = null;     // the saved copy the types on screen are
 let dtSelected = null;
-let dtCounting = false;
-let dtLoading = false;
 
 // An HTTP 200 from Vault can still be a failure; the real verdict is in the body.
 function apiOk(result) {
@@ -3908,118 +4428,262 @@ function vqlStr(s) {
   return String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "''");
 }
 
-const DT_CHIP_LABELS = {
-  idle: "LOAD TYPES",
-  idleTitle: "Load document types and the fields on each layout",
-  loading: "LOADING",
-  loadingTitle: "Loading document types",
-  loaded: "TYPES",
-  loadedTitle: "Reload document types",
-};
+// The type list is read the first time the tab opens in a session (one call),
+// and kept types keep their fields and counts. Types never fetched are filled
+// in the background; clicking a type fetches it at once. Counts refresh while
+// the tab is open once they're over a day old. ↻ forces all of it.
+const dtPending = new Map();      // type name -> the fetch in flight
+let typesPaintTimer = null;
+let typesSaveTimer = null;
 
-function setDtChipState(phase, opts = {}) {
-  applyChipState(dtChip, dtChipLabel, phase, DT_CHIP_LABELS, opts);
+function dtTabActive() {
+  return $("#tab-doctypes").classList.contains("active");
 }
 
-dtChip.addEventListener("click", () => {
-  if (dtLoading) return;
-  loadDocTypes();
+function onDocTypesShown() {
+  if (!state.sessionId) return paintSync();
+  if (!sync.typesListAt && !sync.typesListing && !sync.typesError) syncTypeList();
+  else maybeCountTypes();
+}
+
+// Saved types made ready: when each was fetched and counted. Earlier versions
+// saved everything at once, so their types count as fetched then.
+function normalizeTypes(types, savedAt) {
+  const t = Date.parse(savedAt || "") || CHECKED_LONG_AGO;
+  for (const x of types || []) {
+    if (x.checkedAt === undefined) x.checkedAt = x.properties ? t : null;
+    if (x.countedAt === undefined) x.countedAt = x.docCount != null ? t : null;
+  }
+  return types;
+}
+
+// The newer fields and the newer count of each type another view saved.
+function mergeTypes(into, from) {
+  const theirs = new Map((from || []).map((t) => [t.name, t]));
+  let changed = 0;
+  for (const t of into) {
+    const o = theirs.get(t.name);
+    if (!o) continue;
+    if ((o.checkedAt || 0) > (t.checkedAt || 0)) {
+      Object.assign(t, { properties: o.properties, subtypes: o.subtypes || [], error: o.error || null, checkedAt: o.checkedAt });
+      changed++;
+    }
+    if ((o.countedAt || 0) > (t.countedAt || 0)) {
+      Object.assign(t, { docCount: o.docCount ?? null, countError: o.countError || null, countedAt: o.countedAt });
+      changed++;
+    }
+  }
+  return changed;
+}
+
+async function syncTypeList(force = false) {
+  if (!state.sessionId || sync.typesListing) return;
+  const epoch = sync.epoch;
+  sync.typesListing = true;
+  sync.typesError = null;
+  paintSync();
+  try {
+    const res = await apiCall("/metadata/objects/documents/types");
+    if (epoch !== sync.epoch) return;
+    if (!apiOk(res)) {
+      sync.typesError = apiErr(res);
+      return;
+    }
+    const prev = new Map(docTypes.map((t) => [t.name, t]));
+    const types = (res.data?.types || []).map((raw) => {
+      const link = raw.value || "";
+      const tail = link.split("/").pop() || "";
+      const name = raw.name || tail;
+      const label = raw.label || tail || "(unnamed)";
+      const old = prev.get(name);
+      if (old) return Object.assign(old, { label, link });
+      return { label, name, link, properties: null, subtypes: [], error: null, docCount: null, countError: null, checkedAt: null, countedAt: null };
+    });
+    // ↻: every count is due, and every type is fetched again; what's there
+    // stays on screen meanwhile.
+    if (force) {
+      sync.typesForcedAt = Date.now();
+      dtFresh.clear();
+    }
+    sync.typesListAt = Date.now();
+    if (!types.length) {
+      clearDocTypes();
+      return;
+    }
+    applyDocTypes(types, docTypesTime);
+    scheduleTypesSave(0);
+    queueTypeFill();
+  } finally {
+    sync.typesListing = false;
+    if (epoch === sync.epoch) {
+      paintSync();
+      maybeCountTypes();
+    }
+  }
+}
+
+function queueTypeFill() {
+  const due = typeDue;
+  for (const t of docTypes.filter(due)) {
+    syncEnqueue({
+      key: `type:${t.name}`,
+      needed: () => docTypes.includes(t) && due(t) && !dtPending.has(t.name),
+      run: () => fetchDocType(t),
+    });
+  }
+}
+
+// One type, by the link Vault handed back (Retrieve Document Type): its
+// fields and subtypes as the vault has them now.
+function fetchDocType(type) {
+  if (dtPending.has(type.name)) return dtPending.get(type.name);
+  const path = vaultPath(type.link);
+  if (!path || !state.sessionId) {
+    if (!path) type.error = "type link missing or points off-domain";
+    return Promise.resolve();
+  }
+  const epoch = sync.epoch;
+  const job = apiCall(path)
+    .then((res) => {
+      if (epoch !== sync.epoch) return;
+      type.checkedAt = Date.now();
+      if (!apiOk(res)) {
+        if (!type.properties) type.error = apiErr(res);
+        return;
+      }
+      dtFresh.add(type.name);
+      type.properties = res.data?.properties || [];
+      type.subtypes = res.data?.subtypes || type.subtypes || [];
+      type.error = null;
+      for (const key of [...dtPickResults.keys()]) if (key.startsWith(`${type.name}|`)) dtPickResults.delete(key);
+      if (dtSelected === type) showDocTypeFields(type);
+    })
+    .catch(() => {})
+    .finally(() => {
+      dtPending.delete(type.name);
+      if (epoch === sync.epoch) typesChanged();
+    });
+  dtPending.set(type.name, job);
+  return job;
+}
+
+// Counts, while the tab is open: those over a day old, or never taken. Most
+// records first is the list's order, so the biggest types settle first.
+function maybeCountTypes() {
+  if (!dtTabActive() || sync.counting || !docTypes.length || !state.sessionId) return paintSync();
+  const due = docTypes
+    .filter(countDue)
+    .sort((a, b) => (b.docCount ?? -1) - (a.docCount ?? -1));
+  if (due.length) runCounts(due);
+  else paintSync();
+}
+
+async function runCounts(due) {
+  const epoch = sync.epoch;
+  const started = Date.now();
+  Object.assign(sync, { counting: true, countDone: 0, countTotal: due.length });
+  paintSync();
+  try {
+    for (let i = 0; i < due.length; i += DT_BATCH) {
+      // Leaving the tab stops counting; opening it again picks up the rest.
+      if (epoch !== sync.epoch || !dtTabActive() || budgetLow()) break;
+      await Promise.all(due.slice(i, i + DT_BATCH).map(countDocType));
+      if (epoch !== sync.epoch) return;
+      sync.countDone = Math.min(due.length, i + DT_BATCH);
+      typesChanged();
+    }
+  } finally {
+    if (epoch === sync.epoch) {
+      sync.counting = false;
+      typesChanged();
+      // ↻ pressed while this run was going: count again what it counted first.
+      if (sync.typesForcedAt > started) maybeCountTypes();
+    }
+  }
+}
+
+// One query per type: SELECT id FROM documents WHERE TONAME(type__v) =
+// '<name>'. By name, not label: labels are translated into each user's
+// language and can be renamed, which Veeva's VQL reference gives as the reason
+// to filter with TONAME(). responseDetails.total carries the full count, so
+// PAGESIZE 1 keeps the payload tiny. A failed recount keeps the old figure.
+async function countDocType(t) {
+  const count = (where) =>
+    apiCall("/query", "POST", `q=${encodeURIComponent(`SELECT id FROM documents WHERE ${where} PAGESIZE 1`)}`);
+  let res = t.name ? await count(`TONAME(type__v) = '${vqlStr(t.name)}'`) : null;
+  // A type whose API name Vault won't match this way still gets a count by label.
+  if (!apiOk(res)) res = await count(`type__v = '${vqlStr(t.label)}'`);
+  if (apiOk(res)) {
+    const reported = Number(res.data?.responseDetails?.total);
+    t.docCount = Number.isFinite(reported) ? reported : (res.data?.data || []).length;
+    t.countError = null;
+    t.countedAt = Date.now();
+  } else {
+    t.countError = apiErr(res);
+  }
+}
+
+function typesChanged() {
+  scheduleTypesSave();
+  if (typesPaintTimer) return;
+  typesPaintTimer = setTimeout(() => {
+    typesPaintTimer = null;
+    renderDocTypeList();
+    paintSync();
+  }, 300);
+}
+
+function scheduleTypesSave(delay = 3000) {
+  if (typesSaveTimer && delay > 0) return;
+  clearTimeout(typesSaveTimer);
+  typesSaveTimer = setTimeout(() => {
+    typesSaveTimer = null;
+    saveDocTypes();
+  }, delay);
+}
+
+dtRefresh.addEventListener("click", async () => {
+  if (!state.sessionId || sync.typesListing) return;
+  sync.fast = true;
+  await takeSyncLease();
+  syncTypeList(true);
 });
 
-async function loadDocTypes() {
-  if (dtLoading) return;
-  if (!state.sessionId) {
-    setDtChipState("failed", { title: "Connect to a Vault first" });
-    return;
+dtEmpty.addEventListener("click", (e) => {
+  if (e.target.closest('[data-retry="types"]')) syncTypeList();
+});
+
+// The Doc Types age line: counting, or how old the oldest count is.
+function paintTypesSync() {
+  const counted = docTypes.filter((t) => t.countedAt);
+  const failed = docTypes.filter((t) => t.countError);
+  let text = "";
+  if (!state.sessionId || !docTypes.length) text = "";
+  else if (sync.typesListing) text = sync.fast ? "refreshing…" : "checking…";
+  else if (sync.counting) text = `${sync.typesForcedAt ? "recounting" : "counting"} ${sync.countDone} of ${sync.countTotal}`;
+  else if (sync.typesError) text = `couldn't check: ${sync.typesError}`;
+  else if (counted.length) {
+    text = `counted ${ageText(Math.min(...counted.map((t) => t.countedAt)))}` + (failed.length ? ` · ${failed.length} failed` : "");
+  } else if (sync.typesListing) text = "checking…";
+  dtSync.textContent = text;
+  dtSync.classList.toggle("error", !!sync.typesError || (!sync.counting && failed.length > 0));
+  dtSync.title =
+    "Record counts refresh while this tab is open, once they're over a day old. " +
+    "A type's fields are fetched again when you open it. ↻ lists the types, recounts and re-reads every type now." +
+    (failed.length ? ` Not counted: ${failed.map((t) => `${t.label} (${t.countError})`).join(", ")}.` : "");
+  dtRefresh.disabled = !state.sessionId;
+  dtRefresh.classList.toggle("spinning", !!state.sessionId && sync.fast && (sync.typesListing || sync.counting));
+  dtSyncBar.classList.toggle("hidden", !sync.counting);
+  dtSyncBar.firstElementChild.style.width = `${sync.countTotal ? Math.round((sync.countDone / sync.countTotal) * 100) : 0}%`;
+  if (!docTypes.length) {
+    dtEmpty.innerHTML = !state.sessionId
+      ? "Connect to a Vault to see its document types."
+      : sync.typesError
+        ? `Couldn't list document types: ${esc(sync.typesError)} <button type="button" class="sync-retry" data-retry="types">Try again</button>`
+        : sync.typesListAt && !sync.typesListing
+          ? "This vault has no document types."
+          : "Loading document types…";
   }
-
-  dtLoading = true;
-  setDtChipState("loading", { title: "Listing document types…" });
-  dtTree.innerHTML = '<div class="dt-children-loading"><span class="spinner"></span> Loading…</div>';
-  dtFields.innerHTML = "";
-  dtBreadcrumb.innerHTML = "";
-  dtSelected = null;
-
-  try {
-    // Call 1 — the list. `label` is display text; the API name is the last
-    // segment of `value` and is never derived from the label.
-    const listed = await apiCall("/metadata/objects/documents/types");
-    if (!apiOk(listed)) {
-      setDtChipState("failed", { title: `Couldn't list types: ${apiErr(listed)}` });
-      // The tree was blanked to a spinner before this call; say what happened
-      // rather than leaving it spinning with the reason hidden in a tooltip.
-      dtTree.innerHTML = `<div class="dm-empty">Couldn't list document types.<br />${esc(
-        apiErr(listed)
-      )}</div>`;
-      return;
-    }
-
-    const raw = listed.data?.types || [];
-    const types = raw.map((t) => {
-      const link = t.value || "";
-      const tail = link.split("/").pop() || "";
-      return {
-        label: t.label || tail || "(unnamed)",
-        name: t.name || tail,
-        link,
-        properties: null,
-        subtypes: [],
-        error: null,
-      };
-    });
-
-    if (!types.length) {
-      setDtChipState("loaded", { title: "No document types in this vault" });
-      dtEmpty.textContent = "This vault has no document types.";
-      return;
-    }
-
-    // Call 2 — one per type, following the link Vault handed back.
-    let done = 0;
-    for (let i = 0; i < types.length; i += DT_BATCH) {
-      const batch = types.slice(i, i + DT_BATCH);
-      await Promise.all(
-        batch.map(async (t) => {
-          const path = vaultPath(t.link);
-          if (!path) {
-            t.error = "type link missing or points off-domain";
-            return;
-          }
-          const res = await apiCall(path);
-          if (!apiOk(res)) {
-            t.error = apiErr(res);
-            return;
-          }
-          t.properties = res.data?.properties || [];
-          t.subtypes = res.data?.subtypes || [];
-        })
-      );
-      done += batch.length;
-      setDtChipState("loading", {
-        done,
-        total: types.length,
-        title: `Fetching fields… ${done}/${types.length}`,
-      });
-    }
-
-    applyDocTypes(types, new Date().toISOString());
-    // Saved per vault, like the data model, so switching between the panel and
-    // the full window doesn't mean loading them all over again.
-    const unsaved = await saveDocTypes();
-    if (unsaved) {
-      setDtChipState("loaded", { title: `Loaded, but not saved for next time: ${unsaved.message}` });
-    }
-  } catch (err) {
-    setDtChipState("failed", { title: `Load failed: ${err.message}` });
-  } finally {
-    dtLoading = false;
-  }
-}
-
-function docTypesSummary(types) {
-  const failed = types.filter((t) => t.error).length;
-  const withFields = types.filter((t) => t.properties).length;
-  return `${types.length} types · ${withFields} with fields` + (failed ? ` · ${failed} failed` : "");
 }
 
 // Puts a set of types on screen: freshly loaded, restored from storage on
@@ -4031,7 +4695,6 @@ function applyDocTypes(types, time) {
   dtSelected = null;
   dtFields.innerHTML = "";
   dtBreadcrumb.innerHTML = "";
-  paintDtCountControls();
   renderDocTypeList();
   dtLayout.classList.remove("hidden");
   dtEmpty.classList.add("hidden");
@@ -4039,8 +4702,7 @@ function applyDocTypes(types, time) {
   if (keep) {
     dtTree.querySelector(`.dt-node[data-name="${CSS.escape(keep)}"] .dt-node-header`)?.click();
   }
-  const when = time ? ` · loaded ${new Date(time).toLocaleString()}` : "";
-  setDtChipState("loaded", { title: `${docTypesSummary(types)}${when} — click to reload` });
+  paintSync();
 }
 
 // Only what the Doc Types pane reads. Raw properties carry much more,
@@ -4069,15 +4731,23 @@ function slimDocType(t) {
     properties: t.properties ? t.properties.map(pick) : null,
     docCount: t.docCount ?? null,
     countError: t.countError || null,
+    checkedAt: t.checkedAt ?? null,
+    countedAt: t.countedAt ?? null,
   };
 }
 
 // Returns the error when the save fails, so the caller can say so; the types
 // stay loaded in this view either way.
 async function saveDocTypes() {
-  if (!state.domain || !docTypes.length) return null;
+  const domain = state.domain;
+  if (!domain || !docTypes.length) return null;
   try {
-    await saveVaultCache("docTypeCache", state.domain, {
+    // Another view may have fetched or counted types this one hasn't.
+    const stored = await readVaultCache("docTypeCache", domain);
+    if (domain !== state.domain || !docTypes.length) return null;
+    if (stored?.types?.length) mergeTypes(docTypes, normalizeTypes(stored.types, stored.time));
+    docTypesTime = new Date().toISOString();
+    await saveVaultCache("docTypeCache", domain, {
       time: docTypesTime,
       types: docTypes.map(slimDocType),
     });
@@ -4089,7 +4759,7 @@ async function saveDocTypes() {
 
 async function loadDocTypesForDomain(domain) {
   const entry = await readVaultCache("docTypeCache", domain);
-  if (entry?.types?.length) applyDocTypes(entry.types, entry.time);
+  if (entry?.types?.length) applyDocTypes(normalizeTypes(entry.types, entry.time), entry.time);
   // A vault with none saved starts empty: types left on screen from another
   // vault would otherwise be counted, and saved, as this one's.
   else if (docTypes.length) clearDocTypes();
@@ -4103,39 +4773,7 @@ function clearDocTypes() {
   dtTree.innerHTML = "";
   dtFields.innerHTML = "";
   dtEmpty.classList.remove("hidden");
-  setDtChipState("idle");
-}
-
-// The count chip reads as the load chips do: gold to start, a progress fill
-// while it runs, green once counted (a click recounts), red when types failed.
-const DT_COUNT_LABELS = {
-  idle: "COUNT RECORDS",
-  idleTitle: "Count the documents of each type: one small query per type",
-  loading: "COUNTING",
-  loadingTitle: "Counting documents",
-  loaded: "COUNTED",
-  loadedTitle: "Recount records",
-};
-
-// The chip and the sort follow whether the types on screen carry counts —
-// they may have arrived counted, from storage.
-function paintDtCountControls() {
-  const counted = docTypes.filter((t) => t.docCount != null).length;
-  const failed = docTypes.filter((t) => t.countError);
-  const when = docTypesTime ? `, ${relativeTime(Date.parse(docTypesTime)).toLowerCase()}` : "";
-  if (failed.length) {
-    applyChipState(dtCountBtn, dtCountLabel, "failed", DT_COUNT_LABELS);
-    dtCountLabel.textContent = `${failed.length} FAILED`;
-    dtCountBtn.title =
-      `${counted} of ${docTypes.length} types counted${when}. Not counted: ` +
-      `${failed.map((t) => `${t.label} (${t.countError})`).join(", ")}. Click to recount.`;
-  } else if (counted) {
-    applyChipState(dtCountBtn, dtCountLabel, "loaded", DT_COUNT_LABELS, {
-      title: `${counted} of ${docTypes.length} types counted${when}. Click to recount.`,
-    });
-  } else {
-    applyChipState(dtCountBtn, dtCountLabel, "idle", DT_COUNT_LABELS);
-  }
+  paintSync();
 }
 
 function renderDocTypeList() {
@@ -4157,8 +4795,10 @@ function renderDocTypeList() {
 
     let cell;
     if (t.docCount != null) {
+      // Over a day old: faded until this tab recounts it.
+      const stale = countDue(t) ? " stale" : "";
       cell =
-        `<span class="dt-type-count counted t${countTier(t.docCount)}">` +
+        `<span class="dt-type-count counted t${countTier(t.docCount)}${stale}">` +
         `${esc(compactCount(t.docCount))}</span>`;
     } else if (t.countError) {
       cell = '<span class="dt-type-count failed">!</span>';
@@ -4169,7 +4809,7 @@ function renderDocTypeList() {
     }
 
     html += `<div class="dt-node" data-name="${esc(t.name)}">`;
-    html += `<div class="dt-node-header" title="${esc(tip)}">`;
+    html += `<div class="dt-node-header${dtSelected?.name === t.name ? " selected" : ""}" title="${esc(tip)}">`;
     html += `<span class="dt-node-icon">&#128196;</span>`;
     html += `<span class="dt-node-label">${esc(t.label)}</span>`;
     if (t.docCount == null && !t.countError) html += `<span class="dt-node-sublabel">${esc(t.name)}</span>`;
@@ -4203,71 +4843,6 @@ function compactCount(n) {
   }
   const m = n / 1000000;
   return `${m < 10 ? m.toFixed(1).replace(/\.0$/, "") : Math.round(m)}M`;
-}
-
-// One button, one query per type: SELECT id FROM documents WHERE
-// TONAME(type__v) = '<name>'. By name, not label: labels are translated into
-// each user's language and can be renamed, which Veeva's VQL reference gives
-// as the reason to filter with TONAME(). responseDetails.total carries the
-// full count, so PAGESIZE 1 keeps the payload tiny while still answering
-// "how many".
-dtCountBtn.addEventListener("click", countDocTypeRecords);
-
-async function countDocTypeRecords() {
-  if (dtCounting || !docTypes.length || !state.sessionId) return;
-
-  dtCounting = true;
-  dtCountBtn.disabled = true;
-  const total = docTypes.length;
-  let done = 0;
-  const progress = () =>
-    applyChipState(dtCountBtn, dtCountLabel, "loading", DT_COUNT_LABELS, {
-      done,
-      total,
-      title: `Counting the documents of each type… ${done} of ${total}`,
-    });
-  progress();
-
-  const count = (where) =>
-    apiCall("/query", "POST", `q=${encodeURIComponent(`SELECT id FROM documents WHERE ${where} PAGESIZE 1`)}`);
-
-  const runOne = async (t) => {
-    let res = t.name ? await count(`TONAME(type__v) = '${vqlStr(t.name)}'`) : null;
-    // A type whose API name Vault won't match this way still gets a count by label.
-    if (!apiOk(res)) res = await count(`type__v = '${vqlStr(t.label)}'`);
-    if (apiOk(res)) {
-      const reported = Number(res.data?.responseDetails?.total);
-      t.docCount = Number.isFinite(reported)
-        ? reported
-        : (res.data?.data || []).length;
-      // Clear the other side, or a recount that succeeds keeps reporting the
-      // previous failure in the button and the row tooltips.
-      t.countError = null;
-    } else {
-      t.countError = apiErr(res);
-      t.docCount = null;
-    }
-    done++;
-    progress();
-  };
-
-  try {
-    for (let i = 0; i < docTypes.length; i += DT_BATCH) {
-      await Promise.all(docTypes.slice(i, i + DT_BATCH).map(runOne));
-      renderDocTypeList();
-    }
-
-    // Counts are worth keeping too: they cost one query per type.
-    docTypesTime = new Date().toISOString();
-    paintDtCountControls();
-    renderDocTypeList();
-    await saveDocTypes();
-  } finally {
-    dtCounting = false;
-    dtCountBtn.disabled = false;
-    // A run that stopped part-way shouldn't leave the chip mid-progress.
-    paintDtCountControls();
-  }
 }
 
 dtTree.addEventListener("click", (e) => {
@@ -4370,7 +4945,6 @@ function dtFieldRowHtml(p) {
       `title="${esc(tip)}${ref ? ` → ${ref}` : ""} — click to show its ${ref ? "records" : "values"}">` +
       `<span class="dt-field-label">${esc(p.label || p.name || "")}</span>${req}` +
       `<span class="dt-field-name">${name}</span>` +
-      `<span class="dt-pick-preview"></span>` +
       `<span class="dt-pick-count"><span class="dt-pick-n"></span>` +
       '<svg class="dt-pick-caret" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" ' +
       'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></div>'
@@ -4547,17 +5121,24 @@ async function pickResultFor(type, prop) {
 // The row's count and one-line preview, once its values are known.
 function paintPickRow(row, result) {
   const n = row.querySelector(".dt-pick-n");
-  const preview = row.querySelector(".dt-pick-preview");
-  if (!n || !preview) return;
+  if (!n) return;
   row.classList.remove("loading");
   if (!result.values) {
     n.textContent = "?";
     row.title = `${row.dataset.fname} — Vault didn't return values for this field`;
-    preview.textContent = "";
     return;
   }
-  n.textContent = result.records ? compactCount(result.total ?? result.values.length) : String(result.values.length);
-  preview.textContent = result.values.map((v) => v.label || v.name).join(", ");
+  const count = result.records ? result.total ?? result.values.length : result.values.length;
+  n.textContent = result.records ? compactCount(count) : String(count);
+  // Nothing to show: the row stays, with its 0, but no longer opens.
+  if (!count) {
+    row.classList.add("dt-pick-empty");
+    row.removeAttribute("role");
+    row.removeAttribute("tabindex");
+    row.removeAttribute("aria-expanded");
+    row.title = `${row.dataset.fname} — no ${result.records ? "records" : "values"}`;
+    if (row.nextElementSibling?.classList.contains("dt-values")) row.nextElementSibling.remove();
+  }
 }
 
 // Loads every picklist on the shown type, a few at a time, painting each row
@@ -4598,24 +5179,31 @@ function renderDtValues(box, result, prop) {
     return;
   }
   const total = result.total ?? vals.length;
-  // No help line: the chips say enough. Only a record list cut short says so.
-  const head = result.records && total > vals.length
+  // A record list cut short says so; otherwise the chips say enough.
+  const capped = result.records && total > vals.length
     ? `First ${vals.length.toLocaleString()} of ${total.toLocaleString()} records`
     : "";
-  const filter = vals.length > DT_VALUES_FILTER_AT
-    ? `<input type="search" class="dt-values-filter" placeholder="Filter ${vals.length} values" aria-label="Filter values" spellcheck="false" />`
-    : "";
+  // Long lists: how many on the left, the filter on the right. Typing turns
+  // the count into "12 of 64 users".
+  const ref = refObjectOf(prop);
+  const noun = !result.records ? "values" : ref === "user__sys" ? "users" : ref === "group__sys" ? "groups" : "records";
+  const top = vals.length > DT_VALUES_FILTER_AT
+    ? `<div class="dt-values-top" data-noun="${noun}" data-total="${vals.length}">` +
+      `<span class="dt-values-count">${esc(capped || `${vals.length.toLocaleString()} ${noun}`)}</span>` +
+      '<label class="dt-values-filter-wrap">' +
+      '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>' +
+      `<input type="search" class="dt-values-filter" placeholder="Filter ${vals.length} ${noun}" aria-label="Filter ${noun}" spellcheck="false" /></label></div>` +
+      '<div class="dt-values-none" hidden></div>'
+    : capped ? `<div class="dt-values-head">${esc(capped)}</div>` : "";
   box.innerHTML =
-    (head ? `<div class="dt-values-head">${esc(head)}</div>` : "") +
-    filter +
+    top +
     '<div class="dt-values-list">' +
     vals
       .map(
         (v) =>
           `<button type="button" class="dt-value${v.inactive ? " inactive" : ""}" data-name="${esc(v.name)}" ` +
           `title="Copy ${esc(v.name)}${v.inactive ? " · inactive" : ""}">` +
-          `<span class="dt-value-label">${esc(v.label || v.name)}</span>` +
-          `<span class="dt-value-name">${esc(v.name)}</span></button>`
+          `<span class="dt-value-label">${esc(v.label || v.name)}</span></button>`
       )
       .join("") +
     "</div>";
@@ -4653,7 +5241,11 @@ function showDocTypeFields(type) {
     return;
   }
 
-  const props = type.properties || [];
+  if (!type.properties) {
+    dtFields.innerHTML = '<div class="dm-empty">Loading fields…</div>';
+    return;
+  }
+  const props = type.properties;
   const { onLayout, off, detected } = splitByLayout(props);
   type._layout = onLayout;
   type._layoutDetected = detected;
@@ -4676,9 +5268,10 @@ function showDocTypeFields(type) {
         (isPinnedLast(a.name) ? 1 : 0) - (isPinnedLast(b.name) ? 1 : 0) ||
         order.get(a) - order.get(b)
     );
-    type._ordered = flat.filter((p) => p.hidden !== true);
+    // Only what a query can take, as the counts and the QUERY button go.
+    type._ordered = flat.filter(dtQueryable);
     html += dtTagBarHtml(type._ordered);
-    for (const p of flat) html += dtFieldRowHtml(p);
+    for (const p of type._ordered) html += dtFieldRowHtml(p);
     dtFields.innerHTML = html;
     finishDocTypeFields(type, reopen);
     return;
@@ -4686,8 +5279,12 @@ function showDocTypeFields(type) {
 
   // Group into sections and reproduce the panel's own order: fields by
   // sectionPosition within a section, sections by where they first appear.
+  // Fields Vault marks as not queryable (file metadata, sharing roles) are
+  // left out, so the list, its counts and the QUERY button agree; a section
+  // with none left goes too.
   const groups = new Map();
   for (const p of onLayout) {
+    if (!dtQueryable(p)) continue;
     const s = fieldSection(p) || "General";
     if (!groups.has(s)) groups.set(s, []);
     groups.get(s).push(p);
@@ -4792,9 +5389,12 @@ function dtIsUserField(p) {
   return dtFillTag(p).tag !== "system";
 }
 
-// All Fields | User Fields on the left, the query on the right.
+// All Fields | User Fields on the left, the query on the right. The counts
+// leave out what Vault marks as not queryable (file metadata, sharing roles),
+// so each matches the QUERY button in its view.
 function dtTagBarHtml(fields) {
-  const counts = { all: fields.length, user: fields.filter(dtIsUserField).length };
+  const queryable = fields.filter(dtQueryable);
+  const counts = { all: queryable.length, user: queryable.filter(dtIsUserField).length };
   const opt = (key) =>
     `<button type="button" class="dt-sort-opt dt-tagchip" data-tag-filter="${key}" aria-pressed="false">` +
     `${DT_FILTERS[key]} <span class="dt-tagchip-n">${counts[key]}</span></button>`;
@@ -4874,9 +5474,9 @@ function openDtQuery() {
 }
 
 // ---- Fresh fields on click ------------------------------------------------------
-// LOAD TYPES fetched every type once; clicking one asks Vault for that type
-// again (Retrieve Document Type, by the link Vault handed back), so the layout
-// shown is the vault's now. Once per type per page; the saved copy is updated.
+// Clicking a type asks Vault for it again (Retrieve Document Type), so the
+// layout shown is the vault's now. Once per type per page; the saved copy is
+// updated.
 const dtFresh = new Set();
 
 // Section headings by their label. The fields name their section; the labels
@@ -4933,17 +5533,7 @@ function loadSectionLabels() {
 
 async function refreshDocType(type) {
   if (dtFresh.has(type.name)) return;
-  const path = vaultPath(type.link);
-  if (!path || !state.sessionId) return;
-  const res = await apiCall(path);
-  if (!apiOk(res)) return;
-  dtFresh.add(type.name);
-  type.properties = res.data?.properties || [];
-  type.subtypes = res.data?.subtypes || type.subtypes || [];
-  type.error = null;
-  for (const key of [...dtPickResults.keys()]) if (key.startsWith(`${type.name}|`)) dtPickResults.delete(key);
-  if (dtSelected === type) showDocTypeFields(type);
-  saveDocTypes();
+  await fetchDocType(type);
 }
 
 dtFields.addEventListener("click", async (e) => {
@@ -4965,16 +5555,18 @@ dtFields.addEventListener("click", async (e) => {
     } catch (err) {
       return;
     }
-    const name = value.querySelector(".dt-value-name");
-    name.textContent = "copied";
+    // The label says it was copied for a moment, then comes back.
+    const label = value.querySelector(".dt-value-label");
+    const was = label.textContent;
+    label.textContent = "Copied";
     value.classList.add("copied");
     setTimeout(() => {
-      name.textContent = value.dataset.name;
+      label.textContent = was;
       value.classList.remove("copied");
     }, 1200);
     return;
   }
-  const pick = e.target.closest(".dt-pick");
+  const pick = e.target.closest(".dt-pick:not(.dt-pick-empty)");
   if (pick) {
     toggleDtValues(pick);
     return;
@@ -4987,7 +5579,7 @@ dtFields.addEventListener("click", async (e) => {
 });
 
 dtFields.addEventListener("keydown", (e) => {
-  const pick = e.target.closest?.(".dt-pick");
+  const pick = e.target.closest?.(".dt-pick:not(.dt-pick-empty)");
   if (pick && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();
     toggleDtValues(pick);
@@ -4997,15 +5589,30 @@ dtFields.addEventListener("keydown", (e) => {
 dtFields.addEventListener("input", (e) => {
   const input = e.target.closest(".dt-values-filter");
   if (!input) return;
+  const box = input.closest(".dt-values");
   const f = input.value.trim().toLowerCase();
-  for (const v of input.parentElement.querySelectorAll(".dt-value")) {
+  let shown = 0;
+  for (const v of box.querySelectorAll(".dt-value")) {
     v.hidden = !!f && !v.textContent.toLowerCase().includes(f);
+    if (!v.hidden) shown++;
+  }
+  // The count follows the filter; no match says so instead of going blank.
+  const top = box.querySelector(".dt-values-top");
+  const count = top?.querySelector(".dt-values-count");
+  if (count) {
+    count.dataset.rest ??= count.textContent;
+    count.textContent = f ? `${shown.toLocaleString()} of ${Number(top.dataset.total).toLocaleString()} ${top.dataset.noun}` : count.dataset.rest;
+  }
+  const none = box.querySelector(".dt-values-none");
+  if (none) {
+    none.hidden = !(f && !shown);
+    none.textContent = `No ${top?.dataset.noun || "values"} match “${input.value.trim()}”`;
   }
 });
 
 // ===================== API HELPER =====================
 async function apiCall(endpoint, method = "GET", body = null, headers = null, contentType = null) {
-  return chrome.runtime.sendMessage({
+  const res = await chrome.runtime.sendMessage({
     action: "apiCall",
     domain: state.domain,
     sessionId: state.sessionId,
@@ -5016,6 +5623,8 @@ async function apiCall(endpoint, method = "GET", body = null, headers = null, co
     headers,
     contentType,
   });
+  noteBurst(res?.burst);
+  return res;
 }
 
 // ---- API version ------------------------------------------------------------
@@ -5072,9 +5681,15 @@ const resultsFilter = $("#results-filter");
 const columnsBtn = $("#columns-btn");
 const columnsMenu = $("#columns-menu");
 const resultsRange = $("#results-range");
+const resultsFooter = $("#results-footer");
 const resultsHint = $("#results-hint");
 const pagePrev = $("#page-prev");
 const pageNext = $("#page-next");
+// The workbench wires these in initWorkbench; the panel here.
+if (!WINDOW_MODE) {
+  pagePrev.addEventListener("click", () => turnResultsPage(-1));
+  pageNext.addEventListener("click", () => turnResultsPage(1));
+}
 const inspEmpty = $("#insp-empty");
 const inspBody = $("#insp-body");
 const inspTitle = $("#insp-title");
@@ -5110,13 +5725,6 @@ function initWorkbench(saved) {
   // page, and a silent 100-row default would read as missing data.
   const limits = [...limitSelect.options].map((o) => o.value);
   limitSelect.value = limits.includes(saved.queryLimit) ? saved.queryLimit : "";
-
-  // The load chips live in the status bar here.
-  dmEmptyState.innerHTML =
-    '<div class="dm-empty-title">No data model yet</div>' +
-    "<p>Load it once per vault to browse objects and fields here and get autocomplete in the editor.</p>" +
-    '<button type="button" class="dm-empty-load">Load data model</button>';
-  dtEmpty.innerHTML = "Use <strong>LOAD TYPES</strong> in the status bar below.";
 
   setExplorer(saved.explorerPanel === "history" ? "history" : saved.explorerPanel === "none" ? null : "model", false);
   const h = Number(saved.editorHeight);
@@ -5236,10 +5844,6 @@ function wireWorkbench() {
   });
 
   wireSplit();
-
-  dmEmptyState.addEventListener("click", (e) => {
-    if (e.target.closest(".dm-empty-load")) modelChip.click();
-  });
 
   // "/" jumps to the data model search from anywhere that isn't a text field.
   document.addEventListener("keydown", (e) => {
@@ -5952,7 +6556,10 @@ function freshResultsView() {
 
 function resetResultsView() {
   resultsView = freshResultsView();
-  if (!WINDOW_MODE) return;
+  if (!WINDOW_MODE) {
+    resultsFooter.classList.remove("paged");
+    return;
+  }
   resultsFilter.value = "";
   resultsPanel.classList.remove("has-table");
   closeColumnsMenu();
@@ -6076,6 +6683,13 @@ function paintResultsView() {
 }
 
 function turnResultsPage(step) {
+  if (!WINDOW_MODE) {
+    if (!queryRows.length) return;
+    resultsView.page += step;
+    paintPanelPage();
+    resultsContainer.scrollTop = 0;
+    return;
+  }
   if (!resultsView.active) return;
   resultsView.page = Math.max(0, resultsView.page + step);
   paintResultsView();

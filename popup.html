@@ -27,7 +27,7 @@
         </button>
         <button class="tab" data-tab="doctypes" title="Document types">
           <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <span class="tab-label">Doc Types</span>
+          <span class="tab-label">Document Types</span>
         </button>
       </div>
       <!-- Full window: the History panel, beside Models in the rail. -->
@@ -47,23 +47,13 @@
         </div>
       </div>
 
-      <!-- The load chips; the full window moves them to its status bar. -->
-      <div id="topbar-chip-slot" class="topbar-chip-slot">
-        <div id="chip-group" class="chip-group">
-          <button id="model-chip" class="model-chip" title="Load data model — enables autocomplete">
-            <span class="model-chip-dot"></span>
-            <span class="model-chip-check">&#10003;</span>
-            <span id="model-chip-label" class="model-chip-label">LOAD MODEL</span>
-          </button>
-          <button id="dt-chip" class="model-chip" title="Load document types and the fields on each layout">
-            <span class="model-chip-dot"></span>
-            <span class="model-chip-check">&#10003;</span>
-            <span id="dt-chip-label" class="model-chip-label">LOAD TYPES</span>
-          </button>
-        </div>
-      </div>
-      <span class="topbar-sep topbar-sep-chips window-only"></span>
-
+      <!-- Served by GitHub Pages from this repo's privacy.html; the Chrome Web
+           Store listing points at the same page. -->
+      <a id="privacy-link" class="topbar-icon topbar-privacy" href="https://escadesupremo.github.io/vault-dweller-extension/privacy.html"
+         target="_blank" rel="noopener noreferrer" title="Privacy Policy" aria-label="Privacy Policy">
+        <!-- A page with a shield on it: a policy, about protecting your data. -->
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3"/><path d="M14 3v5h5v2"/><path d="M17 13l4 1.5v2.5c0 2.2-1.6 3.6-4 4.5-2.4-.9-4-2.3-4-4.5v-2.5z"/></svg>
+      </a>
       <button id="expand-btn" class="topbar-icon topbar-icon-accent" title="Open full window">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
       </button>
@@ -106,7 +96,7 @@
               <button class="op-chip insert-num" type="button" data-days="365" title="The date 365 days ago, midnight UTC" aria-label="Last 365 days">365</button>
               <span class="insert-word" aria-hidden="true">days</span>
             </div>
-            <!-- Field Names / Field Values: one chip that names the setting in
+            <!-- Field Names / Field Labels: one chip that names the setting in
                  force and flips it. It decides how picklist, lifecycle state and
                  type values come back, so it changes the results, not the query
                  text; popup.js keeps its label and tooltip current. -->
@@ -114,6 +104,19 @@
               <span id="value-chip-label">FIELD NAMES</span>
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h13"/><path d="m17 20 4-4-4-4"/><path d="M21 16H8"/></svg>
             </button>
+            <!-- FIND: full-text search of the query's target, every field and the
+                 content (SCOPE ALL). It opens a field in this row the way INSERT
+                 opens its chips; Enter writes the FIND clause into the query
+                 after FROM. With one in the query the pill carries its term, and
+                 the × takes it out again. -->
+            <span id="find-wrap" class="find-wrap">
+              <button id="find-chip" class="op-chip find-chip" type="button" aria-expanded="false" aria-controls="find-row" title="Search every field and the content (FIND … SCOPE ALL)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg><span id="find-chip-label">FIND</span></button>
+              <button id="find-clear" class="find-clear" type="button" title="Take the FIND line out of the query" aria-label="Remove the search" hidden>&times;</button>
+            </span>
+            <div id="find-row" class="find-row" hidden>
+              <input id="find-input" class="find-input" type="text" placeholder="Search every field and the content" aria-label="Search text" spellcheck="false" autocomplete="off" maxlength="250" />
+              <span id="find-hint" class="find-hint" role="status"></span>
+            </div>
             <!-- History drops its list under itself. The full window has the
                  rail's History panel instead. -->
             <div class="history-wrap">
@@ -204,12 +207,14 @@
             <button id="discard-btn" class="btn btn-small btn-outline">Discard</button>
             <button id="save-btn" class="btn btn-small btn-primary">Save Changes</button>
           </div>
-          <div id="results-footer" class="results-footer window-only">
+          <!-- Range and Prev/Next: the full window always, the panel when the
+               rows run past one page. -->
+          <div id="results-footer" class="results-footer">
             <span id="results-range"></span>
             <span id="results-hint" class="results-hint"></span>
             <div class="pager">
-              <button id="page-prev" class="btn btn-small btn-outline" type="button">Prev</button>
-              <button id="page-next" class="btn btn-small btn-outline" type="button">Next</button>
+              <button id="page-prev" class="btn btn-small btn-outline pager-arrow" type="button" title="Previous page" aria-label="Previous page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+              <button id="page-next" class="btn btn-small btn-outline pager-arrow" type="button" title="Next page" aria-label="Next page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
             </div>
           </div>
         </div>
@@ -247,12 +252,18 @@
 
       <!-- Data Models Tab -->
       <div id="tab-datamodel" class="tab-content">
-        <div id="dm-empty-state" class="dm-empty">Use <strong>LOAD MODEL</strong> on the Query tab.</div>
+        <div id="dm-empty-state" class="dm-empty">Connect to a Vault to see its data model.</div>
 
         <div id="dm-panel" class="dm-panel hidden">
           <div class="dm-head">
             <span class="dm-head-title">Data model</span>
             <span id="dm-counts" class="dm-counts"></span>
+            <!-- How old the model is; it loads and refreshes by itself, ↻ forces it. -->
+            <span class="sync-line">
+              <span id="dm-sync" class="sync-text"></span>
+              <button id="dm-refresh" class="sync-refresh" type="button" title="Check the whole data model again now" aria-label="Refresh the data model">&#8635;</button>
+            </span>
+            <div id="dm-sync-bar" class="sync-bar hidden" aria-hidden="true"><i></i></div>
           </div>
 
           <div class="dm-search-field">
@@ -285,18 +296,19 @@
 
       <!-- Document Types Tab -->
       <div id="tab-doctypes" class="tab-content">
-        <div id="dt-empty" class="dm-empty">Use <strong>LOAD TYPES</strong> on the Query tab.</div>
+        <div id="dt-empty" class="dm-empty">Connect to a Vault to see its document types.</div>
 
         <div id="dt-layout" class="dt-layout hidden">
           <div class="dt-tree-panel">
-            <!-- The list's title, and the count as a chip with the load chips' states. -->
+            <!-- The list's title and how old its counts are; they refresh while
+                 this tab is open, ↻ forces it. -->
             <div class="dt-sortbar">
               <span class="dt-list-title">Document Types</span>
-              <button id="dt-count-btn" class="model-chip dt-count-chip" type="button">
-                <span class="model-chip-dot"></span>
-                <span class="model-chip-check">&#10003;</span>
-                <span id="dt-count-label" class="model-chip-label">COUNT RECORDS</span>
-              </button>
+              <span class="sync-line">
+                <span id="dt-sync" class="sync-text"></span>
+                <button id="dt-refresh" class="sync-refresh" type="button" title="List the types, recount and re-read every type now" aria-label="Refresh document types">&#8635;</button>
+              </span>
+              <div id="dt-sync-bar" class="sync-bar hidden" aria-hidden="true"><i></i></div>
             </div>
             <div id="dt-tree" class="dt-tree"></div>
           </div>

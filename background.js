@@ -133,10 +133,21 @@ async function makeVaultApiCall(domain, sessionId, endpoint, method = "GET", bod
     }
     const response = await fetch(url, options);
     const data = await response.json();
-    return { success: true, data };
+    return { success: true, data, burst: burstOf(response) };
   } catch (err) {
     return { success: false, error: err.message };
   }
+}
+
+// Vault's rate limit is a number of calls per 5-minute window for the whole
+// vault, shared by every user and integration. Each response says how many
+// are left, so the popup can slow its background loading before it costs
+// anyone else.
+function burstOf(response) {
+  const limit = Number(response.headers.get("X-VaultAPI-BurstLimit"));
+  const remaining = Number(response.headers.get("X-VaultAPI-BurstLimitRemaining"));
+  if (!Number.isFinite(remaining) || response.headers.get("X-VaultAPI-BurstLimitRemaining") === null) return null;
+  return { limit: Number.isFinite(limit) && limit > 0 ? limit : null, remaining };
 }
 
 // Earlier versions kept an AI provider key and installed skills in local

@@ -182,16 +182,6 @@ body {
   text-overflow: ellipsis;
 }
 
-/* The load chips, at the top bar's right end before the window buttons. */
-.topbar-chip-slot {
-  display: flex;
-  align-items: center;
-  margin-left: auto;
-  margin-right: 6px;
-}
-
-.topbar-chip-slot .chip-group { margin-left: 0; }
-
 /* The full window frames the status and user readout as one pill; here the
    wrappers step aside and both sit in the topbar row as before. */
 .topbar-conn,
@@ -260,6 +250,9 @@ body:not(.mode-window) .window-only { display: none !important; }
 }
 
 .topbar-icon:hover { background: var(--bg-deep); color: var(--text); }
+
+/* The privacy policy: an icon left of the window buttons. */
+.topbar-privacy { text-decoration: none; }
 .topbar-icon-accent:hover { background: var(--accent); color: var(--ink); }
 .topbar-icon-danger:hover { background: var(--red); color: var(--white); }
 
@@ -454,8 +447,8 @@ input[type="text"]::placeholder {
   border-color: var(--border-strong);
 }
 
-/* Field Names / Field Values: names the setting in force; the swap mark
-   says a click flips it. A touch tighter than its neighbours so FIELD VALUES
+/* Field Names / Field Labels: names the setting in force; the swap mark
+   says a click flips it. A touch tighter than its neighbours so FIELD LABELS
    fits the slot MORE used to have, on one line in both layouts. */
 .value-chip {
   display: inline-flex;
@@ -468,7 +461,7 @@ input[type="text"]::placeholder {
 .value-chip svg { flex-shrink: 0; color: var(--text-faint); }
 .value-chip:hover svg { color: var(--text-sec); }
 
-/* Field Values is the setting switched on; Field Names, the plain chip, is
+/* Field Labels is the setting switched on; Field Names, the plain chip, is
    off. "On" wears the app's selected tint (as the selected row): light
    gold, so it stays apart from the solid LOAD chips.
    Three classes, to outrank the full window's .op-chip border and colour. */
@@ -514,6 +507,144 @@ body.mode-window .op-chip.insert-chip[aria-expanded="true"] {
   animation: insertOut .16s ease;
 }
 
+/* FIND — opens its search field in the row, as INSERT opens its chips, and
+   the row's other tools step aside meanwhile. With a FIND in the query the
+   pill turns light gold and carries the term, with an × to take it out. */
+.find-wrap {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 999px;
+}
+
+.find-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.find-chip svg { flex-shrink: 0; }
+/* As tall as its neighbours when the label is hidden and only the icon is left. */
+body.mode-window .op-chip.find-chip { min-height: 25px; }
+.find-chip span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+.find-term {
+  display: inline-block;
+  max-width: 120px;
+  vertical-align: bottom;
+}
+
+/* The full window's toolbar stays one line as the editor narrows (a row
+   drawer open): the pill drops the term, then the word, keeping the icon and
+   the ×. The term is always in its tooltip. */
+@container (max-width: 820px) {
+  .find-term { display: none; }
+}
+
+@container (max-width: 690px) {
+  .find-word { display: none; }
+}
+
+.op-chip.find-chip[aria-expanded="true"],
+body.mode-window .op-chip.find-chip[aria-expanded="true"] {
+  background: var(--accent);
+  border-color: #a9741f;
+  color: var(--accent-ink);
+}
+
+.find-wrap.on {
+  background: var(--accent-light);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.find-wrap.on .op-chip.find-chip,
+body.mode-window .find-wrap.on .op-chip.find-chip {
+  padding-right: 3px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-hover);
+}
+
+.find-clear {
+  align-self: stretch;
+  padding: 0 9px 0 3px;
+  border: 0;
+  border-radius: 0 999px 999px 0;
+  background: transparent;
+  color: var(--accent-hover);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.find-clear:hover { color: var(--red); }
+.find-clear[hidden] { display: none; }
+
+.find-row {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  animation: insertOut .16s ease;
+}
+
+.find-row[hidden] { display: none; }
+
+/* .find-row in front: the general text-input rule would win otherwise. */
+.find-row .find-input {
+  flex: 0 1 260px;
+  min-width: 120px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+}
+
+.find-row .find-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+body.mode-window .find-input { height: 25px; font-size: 11.5px; }
+
+.find-hint {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--text-hint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.find-hint.error { color: var(--red); }
+
+.find-hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--btn-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.operator-bar.finding #insert-chip,
+.operator-bar.finding #value-field,
+.operator-bar.finding #format-btn,
+.operator-bar.finding .limit-field,
+.operator-bar.finding #clear-btn,
+.operator-bar.finding .history-wrap { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .find-row { animation: none; }
+}
+
 .insert-row[hidden] { display: none; }
 
 @keyframes insertOut {
@@ -547,23 +678,13 @@ body.mode-window .op-chip.insert-chip[aria-expanded="true"] {
 /* While the chips are out they have the row: the setting and History
    (overlay), the setting and the lesser tools (full window) step aside. */
 .operator-bar.inserting #value-field,
-.operator-bar.inserting .chip-group,
+.operator-bar.inserting .find-wrap,
 .operator-bar.inserting #format-btn,
 .operator-bar.inserting .limit-field,
 .operator-bar.inserting #clear-btn,
 .operator-bar.inserting .history-wrap { display: none; }
 
-/* Data-model chip — the single load affordance, and the only readout of model
-   state. Three states: idle (gold, call to action), loading (progress fills the
-   chip left-to-right), loaded (quiet, green dot, click to reload). */
-.chip-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
+/* The gold chip shape, now used by Doc Types' QUERY N FIELDS button. */
 .model-chip {
   display: flex;
   align-items: center;
@@ -907,19 +1028,24 @@ textarea::placeholder { color: var(--text-faint); }
 #history-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   max-height: 200px;
   overflow-y: auto;
 }
 
+/* flex-shrink: 0 — the list is a capped flex column, and an item with
+   overflow: hidden may shrink to nothing, so a long history squashed every
+   row to a sliver instead of scrolling. */
+/* A pill like the tabs and chips: white inside, a clear edge. */
 .history-item {
-  padding: 8px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
+  flex-shrink: 0;
+  padding: 7px 14px;
+  background: var(--white);
+  border: 1px solid var(--text-faint);
+  border-radius: 999px;
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--text-sec);
+  color: var(--text);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -930,7 +1056,7 @@ textarea::placeholder { color: var(--text-faint); }
 .history-item:hover {
   background: var(--accent-light);
   color: var(--accent-hover);
-  border-color: var(--accent-hover);
+  border-color: var(--accent);
 }
 
 .history-empty {
@@ -957,6 +1083,82 @@ textarea::placeholder { color: var(--text-faint); }
   align-items: center;
   gap: 8px;
 }
+
+/* ---- Loading by itself: how old, and ↻ to refresh now ---- */
+.sync-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.dm-counts + .sync-line { margin-left: 0; }
+
+.sync-text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--text-hint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sync-text.error { color: var(--red); }
+
+.sync-refresh {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent-hover);
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.sync-refresh:hover:not(:disabled) { background: var(--accent-light); }
+.sync-refresh:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: 0; }
+.sync-refresh:disabled { color: var(--text-faint); cursor: default; }
+
+/* Turning while a ↻ refresh runs. */
+.sync-refresh.spinning { animation: sync-spin .9s linear infinite; color: var(--accent); }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-refresh.spinning { animation: none; } }
+
+/* A thin gold line along the header's foot while things load. */
+.dm-head,
+.dt-sortbar { position: relative; }
+
+.sync-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--bg-deep);
+  overflow: hidden;
+}
+
+.sync-bar i { display: block; width: 0; height: 100%; background: var(--accent); transition: width .3s; }
+
+.sync-retry {
+  margin-left: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-light);
+  color: var(--accent-hover);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* A count over a day old, until the tab recounts it. */
+.dt-type-count.stale { opacity: .5; }
 
 .dm-head-title {
   font-family: var(--display);
@@ -1564,23 +1766,8 @@ textarea::placeholder { color: var(--text-faint); }
 
 body.mode-window .dt-list-title { font-size: 17px; }
 
-/* The count: a load chip (see .model-chip), pushed to the row's end. */
-.dt-count-chip { margin-left: auto; }
-
 body.mode-window .dt-sortbar { padding: 8px 10px; }
 body.mode-window .dt-sort-opt { height: 22px; padding: 0 11px; font-size: 12px; }
-
-body.mode-window .dt-count-chip {
-  gap: 5px;
-  min-width: 0;
-  height: 24px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 4px;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: .04em;
-}
 
 /* Tree */
 .dt-tree {
@@ -1743,16 +1930,6 @@ body.mode-window .dt-count-chip {
 .dt-pick .dt-field-label { color: var(--text); font-weight: 600; }
 .dt-pick .dt-field-name { flex-shrink: 0; max-width: 40%; color: var(--text-hint); }
 
-.dt-pick-preview {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10.5px;
-  color: var(--text-hint);
-}
-
 .dt-pick-count {
   margin-left: auto;
   flex-shrink: 0;
@@ -1772,7 +1949,12 @@ body.mode-window .dt-count-chip {
 .dt-pick-caret { transition: transform .15s ease; }
 .dt-pick.loading .dt-pick-n::before { content: "…"; }
 .dt-pick[aria-expanded="true"] { background: var(--accent-light); }
-.dt-pick[aria-expanded="true"] .dt-pick-preview { visibility: hidden; }
+
+/* No values or records: the 0 stays, quiet, and the row doesn't open. */
+.dt-field-row.dt-pick.dt-pick-empty { cursor: default; }
+.dt-field-row.dt-pick.dt-pick-empty:hover { background: transparent; }
+.dt-pick-empty .dt-pick-caret { display: none; }
+.dt-pick-empty .dt-pick-count { border-color: var(--border); background: var(--bg); color: var(--text-faint); }
 .dt-pick[aria-expanded="true"] .dt-pick-caret { transform: rotate(180deg); }
 
 /* Its values, as chips under the row. */
@@ -1789,21 +1971,62 @@ body.mode-window .dt-count-chip {
   color: var(--text-hint);
 }
 
-.dt-values-filter {
-  width: 100%;
+/* Long lists open with a line: the count left, the filter pill right. */
+.dt-values-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.dt-values-count {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--text-hint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dt-values-none {
+  padding: 0 2px 6px;
+  font-size: 11.5px;
+  color: var(--text-hint);
+}
+
+.dt-values-none[hidden] { display: none; }
+
+/* The values filter: a short pill with a search icon, not a full-width bar. */
+.dt-values-filter-wrap {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  width: min(180px, 60%);
   height: 24px;
-  margin-bottom: 6px;
-  padding: 0 7px;
-  background: var(--field-bg);
-  border: .5px solid var(--border);
-  border-radius: var(--radius-2xs);
+  padding: 0 10px;
+  border: .5px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--text-faint);
+}
+
+.dt-values-filter-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.dt-values-filter-wrap svg { flex-shrink: 0; }
+
+.dt-values-filter-wrap .dt-values-filter {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text);
   font-family: var(--font);
   font-size: 11px;
   outline: none;
 }
-
-.dt-values-filter:focus-visible { outline: 2px solid var(--accent-glow); border-color: var(--accent); }
 
 .dt-values-list {
   display: flex;
@@ -1835,16 +2058,10 @@ body.mode-window .dt-count-chip {
 .dt-value:hover,
 .dt-value:focus-visible { border-color: var(--accent); color: var(--text); outline: none; }
 
-.dt-value-name {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  color: var(--text-faint);
-}
-
 .dt-value.copied { border-color: var(--green); }
 .dt-value.inactive { opacity: .55; }
 .dt-value.inactive .dt-value-label { text-decoration: line-through; text-decoration-color: var(--text-faint); }
-.dt-value.copied .dt-value-name { color: var(--green-ink, #2f5b3e); }
+.dt-value.copied .dt-value-label { color: var(--green-ink, #2f5b3e); }
 
 /* All Fields | User Fields, then the query: one row under the summary. */
 .dt-tagbar {
@@ -1885,13 +2102,11 @@ body.mode-window .dt-query-btn {
 
 body.mode-window .dt-field-row { padding: 6px 12px; font-size: 12px; }
 body.mode-window .dt-field-name { font-size: 11px; }
-body.mode-window .dt-pick-preview { font-size: 11.5px; }
 body.mode-window .dt-pick-count { font-size: 10px; }
 body.mode-window .dt-section-header { padding: 16px 12px 6px; font-size: 13px; }
 body.mode-window .dt-values { padding: 6px 12px 10px 26px; }
 body.mode-window .dt-values-head { font-size: 11px; }
 body.mode-window .dt-value { height: 23px; font-size: 11.5px; line-height: 22px; }
-body.mode-window .dt-value-name { font-size: 10px; }
 
 
 /* ========== UTILITIES ========== */
@@ -1997,7 +2212,6 @@ body.mode-window .topbar {
 body.mode-window .logo { width: 28px; height: 28px; margin-bottom: 10px; }
 
 body.mode-window .topbar-title,
-body.mode-window .topbar-chip-slot,
 body.mode-window .topbar-sep { display: none !important; }
 
 body.mode-window .tabs {
@@ -2073,8 +2287,8 @@ body.mode-window .tab[data-tab="datamodel"]::before {
   background: var(--border);
 }
 
-/* The window controls sit at the foot of the rail. */
-body.mode-window #collapse-btn { margin-top: auto; }
+/* The privacy link and the window controls sit at the foot of the rail. */
+body.mode-window .topbar-privacy { margin-top: auto; }
 
 body.mode-window .topbar-icon {
   width: 40px;
@@ -2160,20 +2374,6 @@ body.mode-window .statusbar .topbar-user::before {
   content: "·";
   margin-right: 8px;
   color: var(--text-faint);
-}
-
-body.mode-window .statusbar .chip-group { gap: 6px; margin-left: 0; }
-
-body.mode-window .statusbar .model-chip {
-  gap: 5px;
-  min-width: 0;
-  height: 20px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .04em;
 }
 
 body.mode-window .model-chip .model-chip-dot { display: none; }
@@ -2277,6 +2477,8 @@ body.mode-window .dm-head {
 }
 
 body.mode-window .dm-head-title { white-space: nowrap; }
+body.mode-window .dm-head .sync-line { flex-basis: 100%; margin-left: 0; }
+body.mode-window .sync-text { font-size: 11px; }
 
 body.mode-window .dm-head-title { font-size: 18px; }
 
@@ -2426,28 +2628,6 @@ body.mode-window #dm-empty-state {
   line-height: 1.5;
   color: var(--text-sec);
 }
-
-body.mode-window .dm-empty-title {
-  margin-bottom: 4px;
-  font-family: var(--display);
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-body.mode-window .dm-empty-load {
-  margin-top: 12px;
-  padding: 7px 14px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--ink);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-body.mode-window .dm-empty-load:hover { background: #d6a64a; }
 
 /* ---- Main column ---- */
 /* Flat panes edge to edge: editor, split, results. */
@@ -2698,12 +2878,14 @@ body.mode-window .editor-tools #run-btn:disabled { opacity: .75; }
 }
 
 /* Then "Run query" becomes "Run", and a little air comes out of the chips and
-   tools, so Field Values still fits the line. */
+   tools, so Field Labels still fits the line. */
 /* With the chips out at 1280px and a row drawer open, Run keeps only its
    icon and "Run" so the row stays one line. */
 @container (max-width: 700px) {
   .operator-bar.inserting .run-word,
-  .operator-bar.inserting .run-key { display: none; }
+  .operator-bar.inserting .run-key,
+  .operator-bar.finding .run-word,
+  .operator-bar.finding .run-key { display: none; }
 }
 
 @container (max-width: 580px) {
@@ -3120,6 +3302,24 @@ body.mode-window .results-panel > .save-error { margin: 0 12px 12px; }
 }
 
 .pager { display: flex; gap: 4px; }
+
+/* Back and forward arrows in place of Prev and Next. */
+.pager-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The panel: under the table, no rule, and only once there's a second page. */
+body:not(.mode-window) .results-footer {
+  justify-content: space-between;
+  padding: 8px 2px 0;
+  border-top: 0;
+}
+
+body:not(.mode-window) .results-footer:not(.paged) { display: none; }
+body:not(.mode-window) .results-hint { display: none; }
+body:not(.mode-window) .results-footer .btn:disabled { opacity: .45; cursor: default; }
 
 body.mode-window .results-footer .btn {
   padding: 4px 10px;
