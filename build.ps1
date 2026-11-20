@@ -23,13 +23,10 @@ $src = $PSScriptRoot
 $include = @(
     'manifest.json',
     'background.js',
-    'skills.js',
-    'skill-runner.js',
     'content.js',
     'popup.html',
     'popup.css',
     'popup.js',
-    'skills-ui.js',
     'icons',
     'fonts'
 )

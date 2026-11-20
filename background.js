@@ -1,11 +1,5 @@
 // Background service worker — reads TK cookie and handles Vault API calls
 
-// Skills: the format, the GitHub import and the saved list (skills.js), and the
-// run loop with its tools (skill-runner.js). Both use this file's Vault call,
-// provider table and redaction, which are declared below and in scope by the
-// time any of their functions run.
-importScripts("skills.js", "skill-runner.js");
-
 // Toolbar click toggles the overlay iframe injected by content.js into the Vault tab.
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id) return;
@@ -40,36 +34,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getToken") {
     getVaultToken(request.domain).then(sendResponse);
     return true; // keep channel open for async
-  }
-
-  if (request.action === "aiSaveKey") {
-    saveAiKey(request.provider, request.key).then(sendResponse);
-    return true;
-  }
-
-  if (request.action === "aiKeyState") {
-    aiKeyState().then(sendResponse);
-    return true;
-  }
-
-  if (request.action === "aiVerifyKey") {
-    verifyAiKey().then(sendResponse);
-    return true;
-  }
-
-  if (request.action === "aiModels") {
-    listAiModels().then(sendResponse);
-    return true;
-  }
-
-  if (request.action === "aiSetModel") {
-    setAiModel(request.model).then(sendResponse);
-    return true;
-  }
-
-  if (typeof request.action === "string" && request.action.startsWith("skills")) {
-    skillsMessage(request).then((r) => sendResponse(r || { success: false, error: "Unknown request." }));
-    return true;
   }
 
   if (request.action === "apiCall") {
@@ -175,133 +139,8 @@ async function makeVaultApiCall(domain, sessionId, endpoint, method = "GET", bod
   }
 }
 
-// ---- AI provider key -------------------------------------------------------
-// The key stays in the service worker. popup.js can ask whether one exists and
-// ask for it to be tested, but never receives the value back, so nothing in the
-// page context can read it.
-const AI_PROVIDERS = {
-  anthropic: {
-    verifyUrl: "https://api.anthropic.com/v1/models?limit=1",
-    headers: (key) => ({
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-      // A service worker still presents a browser origin, so host_permissions
-      // alone doesn't satisfy Anthropic — it refuses CORS requests without this.
-      "anthropic-dangerous-direct-browser-access": "true",
-    }),
-  },
-  openai: {
-    verifyUrl: "https://api.openai.com/v1/models",
-    headers: (key) => ({ Authorization: `Bearer ${key}` }),
-  },
-  gemini: {
-    // Header auth rather than ?key= so the credential stays out of URLs and logs.
-    verifyUrl: "https://generativelanguage.googleapis.com/v1beta/models",
-    headers: (key) => ({ "x-goog-api-key": key }),
-  },
-};
-
-// Provider error bodies are handed back to the popup, and some of them quote
-// the key that failed (OpenAI returns "Incorrect API key provided: sk-proj-…").
-// Nothing key-shaped reaches the page.
-const KEY_PATTERNS = [
-  /sk-[A-Za-z0-9_-]{6,}/g,
-  /AIza[A-Za-z0-9_-]{6,}/g,
-  /Bearer\s+[A-Za-z0-9._-]{8,}/gi,
-];
-
-async function redact(text) {
-  let out = String(text == null ? "" : text);
-  const store = await chrome.storage.local.get(["aiKey"]);
-  // The literal key first — it may not match any pattern.
-  if (store.aiKey && store.aiKey.length >= 8) {
-    out = out.split(store.aiKey).join("[redacted]");
-  }
-  for (const re of KEY_PATTERNS) out = out.replace(re, "[redacted]");
-  return out;
-}
-
-// A brake on the page asking for key checks in a loop. The window lives in
-// worker memory, so it resets if the worker is recycled; the provider's own
-// limits are the real ones.
-const AI_LIMITS = {
-  windowMs: 60000,
-  maxVerifies: 6,
-};
-
-const aiVerifyTimes = [];
-
-function rateLimited(log, max) {
-  const now = Date.now();
-  while (log.length && now - log[0] > AI_LIMITS.windowMs) log.shift();
-  if (log.length >= max) return true;
-  log.push(now);
-  return false;
-}
-
-async function saveAiKey(provider, key) {
-  if (!AI_PROVIDERS[provider]) return { success: false, error: "Unknown provider" };
-  const trimmed = String(key || "").trim();
-  // A model belongs to one provider's key; a new key picks again.
-  await chrome.storage.local.remove(["aiModel"]);
-  if (!trimmed) {
-    await chrome.storage.local.remove(["aiKey", "aiProvider", "aiKeyVerified"]);
-    return { success: true, hasKey: false, provider: provider };
-  }
-  // A new key is unverified until it answers a test request.
-  await chrome.storage.local.set({ aiProvider: provider, aiKey: trimmed, aiKeyVerified: false });
-  return { success: true, hasKey: true, provider: provider };
-}
-
-async function aiKeyState() {
-  const store = await chrome.storage.local.get(["aiProvider", "aiKey", "aiKeyVerified"]);
-  const key = store.aiKey || "";
-  const provider = store.aiProvider || "anthropic";
-  return {
-    success: true,
-    hasKey: !!key,
-    provider: provider,
-    // null for a key stored before verification was tracked — the popup
-    // re-tests those once rather than locking the user out.
-    verified: key ? (store.aiKeyVerified ?? null) : false,
-    // A masked tail is enough to tell two keys apart without exposing one.
-    hint: key ? `…${key.slice(-4)}` : "",
-  };
-}
-
-async function verifyAiKey() {
-  if (rateLimited(aiVerifyTimes, AI_LIMITS.maxVerifies)) {
-    return { success: false, error: "Too many checks in a row. Wait a moment." };
-  }
-  const store = await chrome.storage.local.get(["aiProvider", "aiKey"]);
-  const provider = store.aiProvider || "anthropic";
-  const key = store.aiKey;
-  if (!key) return { success: false, error: "No key saved yet." };
-
-  const cfg = AI_PROVIDERS[provider];
-  if (!cfg) return { success: false, error: "Unknown provider" };
-
-  try {
-    const resp = await fetch(cfg.verifyUrl, { headers: cfg.headers(key) });
-    if (resp.ok) {
-      await chrome.storage.local.set({ aiKeyVerified: true });
-      return { success: true, provider: provider, hint: `…${key.slice(-4)}` };
-    }
-    await chrome.storage.local.set({ aiKeyVerified: false });
-
-    // Both providers describe the failure in the body; a bare status is useless.
-    let detail = `HTTP ${resp.status}`;
-    try {
-      const body = await resp.json();
-      detail = body?.error?.message || detail;
-    } catch (e) {
-      /* non-JSON error body */
-    }
-    if (resp.status === 401 || resp.status === 403) {
-      return { success: false, error: `Key rejected — ${await redact(detail)}` };
-    }
-    return { success: false, error: await redact(detail) };
-  } catch (err) {
-    return { success: false, error: `Could not reach ${provider}: ${await redact(err.message)}` };
-  }
-}
+// Earlier versions kept an AI provider key and installed skills in local
+// storage. Neither feature exists any more, so drop what they left behind.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.remove(["aiKey", "aiProvider", "aiKeyVerified", "aiModel", "skills"]);
+});

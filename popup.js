@@ -17,19 +17,6 @@ const vqlPanel = $("#vql-panel");
 const statusPill = $("#status-pill");
 const statusText = $("#status-text");
 const domainInput = $("#vault-domain");
-const aiCard = $("#ai-card");
-const aiProviderGroup = $("#ai-provider");
-const aiConnLogo = $("#ai-conn-logo");
-const aiKeyInput = $("#ai-key-input");
-const aiKeyReveal = $("#ai-key-reveal");
-const aiKeySave = $("#ai-key-save");
-const aiKeyCancel = $("#ai-key-cancel");
-const aiKeyDrop = $("#ai-key-drop");
-const aiKeyError = $("#ai-key-error");
-const aiConnName = $("#ai-conn-name");
-const aiConnMeta = $("#ai-conn-meta");
-const aiKeyReplace = $("#ai-key-replace");
-const aiKeyClear = $("#ai-key-clear");
 const vqlInput = $("#vql-input");
 const runBtn = $("#run-btn");
 const cancelBtn = $("#cancel-btn");
@@ -265,9 +252,6 @@ function activatePane(name) {
   // layout has to know which pane owns the main column.
   vqlPanel.dataset.activeTab = name;
   if (name === "datamodel") syncDmToQuery();
-  // Read the stored key's state each time Skills opens, unless a key is half
-  // typed: a refresh empties the field, and switching tabs shouldn't lose it.
-  if (name === "skills" && !aiKeyInput.value) refreshAiKeyState();
 }
 
 $$(".tab").forEach((tab) => {
@@ -1479,16 +1463,14 @@ function xmlSafe(s) {
 // Every cell, header included, uses cellXfs entry 1: a thin black border on all
 // four sides (so the whole table gets an inner and an outer grid) and wrapped
 // text, top-aligned so a tall wrapped cell doesn't push the rest of its row to
-// the bottom. Entry 0 is the plain default every workbook must have. Skill
-// reports add 2, a bold header on light grey, and 3, a flagged row in light
-// amber; both keep the grid.
+// the bottom. Entry 0 is the plain default every workbook must have.
 const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="2"><font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font><font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font></fonts>
-<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7E6E6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill></fills>
+<fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font></fonts>
+<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
 <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>
+<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 
@@ -1506,76 +1488,46 @@ function longestLine(s) {
   return n;
 }
 
-// A1-style column letters: 0 → A, 26 → AA.
-function colLetter(i) {
-  let s = "";
-  for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
-  return s;
-}
-
-// opts (skill reports): header → bold grey header row, freeze → header stays
-// put while scrolling, filter → filter buttons on the header, highlight → the
-// key whose non-empty value shades its row, maxWidth → a wider column cap.
-function sheetXml(keys, rows, opts = {}) {
+function sheetXml(keys, rows) {
   const xmlEsc = (s) => xmlSafe(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  // maxWidth: one cap for every column, or a cap per column.
-  const capOf = (i) => (Array.isArray(opts.maxWidth) ? opts.maxWidth[i] : opts.maxWidth) || XLSX_COL_MAX;
   const widths = keys.map((k) => longestLine(String(k)));
   let sheetRows = "<row>";
-  const headStyle = opts.header ? 2 : 1;
-  for (const key of keys) sheetRows += `<c s="${headStyle}" t="inlineStr"><is><t>${xmlEsc(key)}</t></is></c>`;
+  for (const key of keys) sheetRows += `<c s="1" t="inlineStr"><is><t>${xmlEsc(key)}</t></is></c>`;
   sheetRows += "</row>";
   for (const row of rows) {
-    const style = opts.highlight && row[opts.highlight] ? 3 : 1;
     sheetRows += "<row>";
     for (let i = 0; i < keys.length; i++) {
       const val = row[keys[i]];
       const text = typeof val === "number" ? String(val) : String(exportText(val));
-      if (widths[i] < capOf(i)) widths[i] = Math.max(widths[i], longestLine(text));
+      if (widths[i] < XLSX_COL_MAX) widths[i] = Math.max(widths[i], longestLine(text));
       if (typeof val === "number") {
-        sheetRows += `<c s="${style}"><v>${val}</v></c>`;
+        sheetRows += `<c s="1"><v>${val}</v></c>`;
       } else {
-        sheetRows += `<c s="${style}" t="inlineStr"><is><t>${xmlEsc(text)}</t></is></c>`;
+        sheetRows += `<c s="1" t="inlineStr"><is><t>${xmlEsc(text)}</t></is></c>`;
       }
     }
     sheetRows += "</row>";
   }
   // +2 for the cell's padding, so a value at exactly the measured width fits.
-  // A header with filter buttons needs room for the button too.
-  const pad = opts.filter ? 4 : 2;
   const cols = widths
     .map((w, i) => {
-      const width = Math.min(capOf(i), Math.max(XLSX_COL_MIN, w + pad));
+      const width = Math.min(XLSX_COL_MAX, Math.max(XLSX_COL_MIN, w + 2));
       return `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`;
     })
     .join("");
-  const views = opts.freeze
-    ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>'
-    : "";
-  const filter = opts.filter && keys.length ? `<autoFilter ref="${filterRef(keys, rows)}"/>` : "";
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-${views}${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${sheetRows}</sheetData>${filter}
+${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${sheetRows}</sheetData>
 </worksheet>`;
 }
 
-function filterRef(keys, rows) {
-  return `A1:${colLetter(keys.length - 1)}${rows.length + 1}`;
-}
-
 function buildXlsxBlob(rows) {
-  return buildWorkbookBlob(xlsxSheets(rows));
-}
-
-// sheets: [{ name, keys, rows, header?, freeze?, filter?, highlight?, maxWidth? }]
-function buildWorkbookBlob(input) {
-  const used = new Set();
-  const sheets = input.map((sh) => ({ ...sh, name: sheetName(sh.name, used) }));
+  const sheets = xlsxSheets(rows);
   const xmlAttr = (s) => xmlSafe(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets>${sheets.map((sh, i) => `<sheet name="${xmlAttr(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>${filterNames(sheets, xmlAttr)}
+<sheets>${sheets.map((sh, i) => `<sheet name="${xmlAttr(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>
 </workbook>`;
 
   // The styles part takes the id after the last sheet's.
@@ -1606,29 +1558,9 @@ ${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" Co
   zip.addFile("xl/workbook.xml", workbook);
   zip.addFile("xl/_rels/workbook.xml.rels", workbookRels);
   zip.addFile("xl/styles.xml", XLSX_STYLES);
-  sheets.forEach((sh, i) => zip.addFile(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sh.keys, sh.rows, sh)));
+  sheets.forEach((sh, i) => zip.addFile(`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sh.keys, sh.rows)));
 
   return zip.toBlob();
-}
-
-// Excel keeps a hidden name for each sheet's filter range and adds it on save
-// if it's missing; writing it up front keeps the file as Excel would.
-function filterNames(sheets, xmlAttr) {
-  const names = sheets
-    .map((sh, i) => (sh.filter && sh.keys.length
-      ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${xmlAttr(sh.name.replace(/'/g, "''"))}'!$A$1:$${colLetter(sh.keys.length - 1)}$${sh.rows.length + 1}</definedName>`
-      : ""))
-    .join("");
-  return names ? `<definedNames>${names}</definedNames>` : "";
-}
-
-function downloadWorkbook(sheets, filename) {
-  const url = URL.createObjectURL(buildWorkbookBlob(sheets));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function downloadXlsx(rows, filename) {
@@ -5070,195 +5002,6 @@ dtFields.addEventListener("input", (e) => {
     v.hidden = !!f && !v.textContent.toLowerCase().includes(f);
   }
 });
-
-// ===================== AI PROVIDER KEY =====================
-// Entered and checked on the Skills tab. The key is written to and verified by
-// background.js and never read back into this page — popup.js only ever learns
-// whether one exists and its last 4 chars.
-const AI_PROVIDER_META = {
-  anthropic: {
-    label: "Anthropic",
-    prefix: "sk-ant-",
-  },
-  openai: {
-    label: "OpenAI",
-    prefix: "sk-proj-",
-  },
-  gemini: {
-    label: "Gemini",
-    prefix: "AIza",
-  },
-};
-
-const aiMeta = (id) => AI_PROVIDER_META[id] || AI_PROVIDER_META.anthropic;
-
-// What background.js last told us about the stored key.
-let aiSaved = { hasKey: false, provider: "anthropic", verified: false, hint: "" };
-// Replacing a verified key: the form is up, with a way back to the key in use.
-let aiReplacing = false;
-// The provider picked in the form (the marks in the key field's prefix).
-let aiProvider = "anthropic";
-
-function setAiProvider(id) {
-  aiProvider = AI_PROVIDER_META[id] ? id : "anthropic";
-  for (const b of aiProviderGroup.querySelectorAll(".ai-prov")) {
-    const on = b.dataset.provider === aiProvider;
-    b.classList.toggle("active", on);
-    b.setAttribute("aria-checked", String(on));
-    b.tabIndex = on ? 0 : -1;
-  }
-  aiKeyInput.placeholder = `${aiMeta(aiProvider).prefix}…`;
-}
-
-// One place decides what the card shows. state: none | checking | bad | ok.
-function paintAi(state, error = "") {
-  aiCard.dataset.state = state;
-  aiKeyError.textContent = state === "bad" ? error : "";
-  const checking = state === "checking";
-  aiKeySave.disabled = checking;
-  aiKeySave.textContent = checking ? "Verifying…" : "Verify";
-  aiKeyInput.disabled = checking;
-  for (const b of aiProviderGroup.querySelectorAll(".ai-prov")) b.disabled = checking;
-  aiKeyCancel.hidden = !aiReplacing || checking;
-  // A saved key that hasn't passed can still be thrown away from the form.
-  aiKeyDrop.hidden = aiReplacing || checking || !aiSaved.hasKey;
-  if (state === "ok") {
-    aiConnName.textContent = aiMeta(aiSaved.provider).label;
-    const mark = aiProviderGroup.querySelector(`[data-provider="${aiSaved.provider}"] svg`);
-    aiConnLogo.innerHTML = mark ? mark.outerHTML : "";
-    aiConnMeta.textContent = `API key ${aiSaved.hint} · verified`;
-  }
-}
-
-function setAiKeyMasked(masked) {
-  aiKeyInput.type = masked ? "password" : "text";
-  aiKeyReveal.textContent = masked ? "show" : "hide";
-}
-
-async function refreshAiKeyState() {
-  const res = await chrome.runtime.sendMessage({ action: "aiKeyState" });
-  if (!res?.success) return;
-  aiSaved = { hasKey: res.hasKey, provider: res.provider || "anthropic", verified: res.verified, hint: res.hint || "" };
-  aiReplacing = false;
-  setAiProvider(aiSaved.provider);
-  aiKeyInput.value = "";
-  setAiKeyMasked(true);
-
-  if (!aiSaved.hasKey) return paintAi("none");
-  if (aiSaved.verified === true) return paintAi("ok");
-  // Stored before verification was tracked — test it once rather than
-  // showing a state we cannot vouch for.
-  if (aiSaved.verified === null) return runAiVerify();
-  paintAi("bad", `The saved key (${aiSaved.hint}) hasn't passed a check yet. Verify to retry, or paste a new one.`);
-}
-
-// Tests whatever key is stored. Shared by Verify and the migration check above.
-async function runAiVerify() {
-  paintAi("checking");
-  const res = await chrome.runtime.sendMessage({ action: "aiVerifyKey" });
-  if (res?.success) {
-    aiSaved = { hasKey: true, provider: res.provider, verified: true, hint: res.hint || aiSaved.hint };
-    aiReplacing = false;
-    paintAi("ok");
-  } else {
-    aiSaved.verified = false;
-    aiReplacing = false;
-    paintAi("bad", res?.error || "The key could not be checked.");
-  }
-  return !!res?.success;
-}
-
-// One action: store the key, then prove it works. With the field empty it
-// re-tests the key already saved, if there is one for this provider.
-async function aiVerifyClicked() {
-  const key = aiKeyInput.value.trim();
-  const provider = aiProvider;
-  if (!key) {
-    if (aiSaved.hasKey && !aiReplacing && aiSaved.provider === provider) return runAiVerify();
-    paintAi("bad", `Paste a key beginning ${aiMeta(provider).prefix} first.`);
-    aiKeyInput.focus();
-    return;
-  }
-  paintAi("checking");
-  const res = await chrome.runtime.sendMessage({ action: "aiSaveKey", provider, key });
-  if (!res?.success) {
-    paintAi("bad", res?.error || "Could not save the key.");
-    return;
-  }
-  // Clear the field at once — nothing needs it in the page after this.
-  aiKeyInput.value = "";
-  setAiKeyMasked(true);
-  aiSaved = { hasKey: true, provider, verified: false, hint: `…${key.slice(-4)}` };
-  aiReplacing = false;
-  await runAiVerify();
-}
-
-async function aiRemove() {
-  await chrome.runtime.sendMessage({ action: "aiSaveKey", provider: aiProvider, key: "" });
-  aiSaved = { hasKey: false, provider: aiProvider, verified: false, hint: "" };
-  aiReplacing = false;
-  aiKeyInput.value = "";
-  setAiKeyMasked(true);
-  paintAi("none");
-}
-
-aiKeySave.addEventListener("click", aiVerifyClicked);
-aiKeyInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    aiVerifyClicked();
-  }
-});
-
-// A key belongs to one provider: switching clears a complaint about the last.
-function pickAiProvider(id) {
-  if (id === aiProvider) return;
-  setAiProvider(id);
-  paintAi(aiCard.dataset.state === "bad" ? "none" : aiCard.dataset.state);
-}
-
-aiProviderGroup.addEventListener("click", (e) => {
-  const b = e.target.closest(".ai-prov");
-  if (!b || b.disabled) return;
-  pickAiProvider(b.dataset.provider);
-  aiKeyInput.focus();
-});
-
-// A radio group: arrow keys move the choice and the focus with it.
-aiProviderGroup.addEventListener("keydown", (e) => {
-  const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
-  if (!step) return;
-  e.preventDefault();
-  const ids = Object.keys(AI_PROVIDER_META);
-  const next = ids[(ids.indexOf(aiProvider) + step + ids.length) % ids.length];
-  pickAiProvider(next);
-  aiProviderGroup.querySelector(`[data-provider="${next}"]`).focus();
-});
-
-aiKeyReveal.addEventListener("click", () => {
-  setAiKeyMasked(aiKeyInput.type !== "password");
-  aiKeyInput.focus();
-});
-
-aiKeyReplace.addEventListener("click", () => {
-  aiReplacing = true;
-  paintAi("none");
-  aiKeyInput.focus();
-});
-
-aiKeyCancel.addEventListener("click", () => {
-  aiReplacing = false;
-  aiKeyInput.value = "";
-  setAiKeyMasked(true);
-  setAiProvider(aiSaved.provider);
-  paintAi("ok");
-});
-
-aiKeyClear.addEventListener("click", aiRemove);
-aiKeyDrop.addEventListener("click", aiRemove);
-
-setAiProvider(aiProvider);
-
 
 // ===================== API HELPER =====================
 async function apiCall(endpoint, method = "GET", body = null, headers = null, contentType = null) {

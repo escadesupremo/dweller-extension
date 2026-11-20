@@ -11,14 +11,7 @@
     "scripting"
   ],
   "host_permissions": [
-    "https://*.veevavault.com/*",
-    "https://api.anthropic.com/*",
-    "https://api.openai.com/*",
-    "https://generativelanguage.googleapis.com/*"
-  ],
-  "optional_host_permissions": [
-    "https://api.github.com/*",
-    "https://raw.githubusercontent.com/*"
+    "https://*.veevavault.com/*"
   ],
   "action": {
     "default_icon": {
