@@ -103,7 +103,6 @@
   --orange: #b88a23;         /* mustardDeep doubles as 'connecting' state */
   --orange-bg: rgba(184,138,35,.16);
   --purple: #6b4ea8;
-  --teal: #2e7d6b;
   --blue: #2e4a6b;           /* denim */
 
   /* Geometry */
@@ -349,9 +348,8 @@ input[type="text"]::placeholder {
   border-radius: var(--radius-2xs);
 }
 
-/* ========== TABS (segmented control) ========== */
-.tabs,
-.seg {
+/* ========== TABS ========== */
+.tabs {
   position: relative;
   display: flex;
   flex-shrink: 0;
@@ -366,8 +364,7 @@ input[type="text"]::placeholder {
   touch-action: none; /* let pointermove drive drag-to-switch on touch */
 }
 
-.tab-thumb,
-.seg-thumb {
+.tab-thumb {
   position: absolute;
   top: 2px;
   bottom: 2px;
@@ -383,11 +380,9 @@ input[type="text"]::placeholder {
   pointer-events: none;
 }
 
-.tabs.dragging .tab-thumb,
-.seg.dragging .seg-thumb { transition: none; }
+.tabs.dragging .tab-thumb { transition: none; }
 
-.tab,
-.seg-opt {
+.tab {
   position: relative;
   z-index: 1;
   flex: 1;
@@ -408,11 +403,9 @@ input[type="text"]::placeholder {
   overflow-wrap: anywhere;
 }
 
-.tab:hover,
-.seg-opt:hover { color: var(--text); }
+.tab:hover { color: var(--text); }
 
-.tab.active,
-.seg-opt.active {
+.tab.active {
   color: var(--text);
   font-weight: 600;
 }
@@ -1485,9 +1478,6 @@ textarea::placeholder { color: var(--text-faint); }
 .dt-offlayout.open .dt-offlayout-body { display: block; }
 .dt-offlayout-body .dt-field-row { opacity: .72; }
 
-.dt-badge.scope  { background: rgba(139,92,246,.15); color: var(--purple); }
-.dt-badge.rep    { background: var(--orange-bg); color: var(--orange); }
-.dt-badge.locked { background: var(--bg); color: var(--text-faint); }
 
 .dt-layout {
   display: flex;
@@ -1622,22 +1612,6 @@ body.mode-window .dt-count-chip {
   background: var(--accent-light);
 }
 
-.dt-node-arrow {
-  font-size: 8px;
-  color: var(--text-hint);
-  transition: transform 0.15s;
-  width: 10px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.dt-node-arrow.empty {
-  visibility: hidden;
-}
-
-.dt-node.expanded > .dt-node-header .dt-node-arrow {
-  transform: rotate(90deg);
-}
 
 .dt-node-icon {
   font-size: 10px;
@@ -1671,14 +1645,6 @@ body.mode-window .dt-count-chip {
   white-space: nowrap;
 }
 
-.dt-children {
-  display: none;
-  padding-left: 14px;
-}
-
-.dt-node.expanded > .dt-children {
-  display: block;
-}
 
 .dt-children-loading {
   padding: 6px 10px 6px 30px;
@@ -1769,19 +1735,6 @@ body.mode-window .dt-count-chip {
   color: var(--text-faint);
 }
 
-
-.dt-badge {
-  font-size: 8px;
-  font-weight: 700;
-  text-transform: uppercase;
-  padding: 1px 4px;
-  border-radius: 3px;
-  letter-spacing: 0.3px;
-}
-
-.dt-badge.req { background: var(--red-bg); color: var(--red); }
-.dt-badge.edit { background: var(--green-bg); color: #2f5b3e; }
-.dt-badge.type-badge { background: var(--bg); color: var(--text-hint); font-family: var(--mono); }
 
 /* A picklist: bold label, a one-line preview of its values, a gold count. */
 .dt-field-row.dt-pick { cursor: pointer; }
@@ -1941,7 +1894,6 @@ body.mode-window .dt-value { height: 23px; font-size: 11.5px; line-height: 22px;
 body.mode-window .dt-value-name { font-size: 10px; }
 
 
-
 /* ========== UTILITIES ========== */
 .hidden { display: none !important; }
 
@@ -1963,91 +1915,6 @@ body.mode-window .dt-value-name { font-size: 10px; }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* ========== DATA TYPES TAB ========== */
-.dt-cat {
-  background: var(--white);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
-  overflow: hidden;
-}
-.dt-cat-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  cursor: pointer;
-  user-select: none;
-  background: var(--bg);
-}
-.dt-cat-header:hover { background: var(--accent-light); }
-.dt-cat-arrow {
-  display: inline-block;
-  font-size: 10px;
-  transition: transform 0.15s ease;
-  color: var(--text-sec);
-}
-.dt-cat.open .dt-cat-arrow { transform: rotate(90deg); }
-.dt-cat-label { font-weight: 600; flex: 1; }
-.dt-cat-count { color: var(--text-sec); font-size: 11px; }
-.dt-cat-body { display: none; padding: 10px 12px; }
-.dt-cat.open .dt-cat-body { display: block; }
-.dt-cat-search {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  font-size: 12px;
-  font-family: var(--font);
-  margin-bottom: 8px;
-}
-.dt-cat-search:focus { outline: none; border-color: var(--border-focus); }
-.dt-cat-list { display: flex; flex-direction: column; gap: 4px; }
-
-.dt-obj { border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--white); }
-.dt-obj-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  cursor: pointer;
-  user-select: none;
-}
-.dt-obj-header:hover { background: var(--accent-light); }
-.dt-obj-arrow {
-  font-size: 9px;
-  color: var(--text-sec);
-  transition: transform 0.15s ease;
-}
-.dt-obj.open .dt-obj-arrow { transform: rotate(90deg); }
-.dt-obj-label { font-weight: 500; flex: 1; }
-.dt-obj-name { color: var(--text-hint); font-family: var(--mono); font-size: 11px; }
-.dt-obj-count {
-  background: var(--bg);
-  color: var(--text-sec);
-  border-radius: 10px;
-  padding: 1px 8px;
-  font-size: 11px;
-}
-.dt-obj-fields { display: none; padding: 4px 10px 8px 22px; border-top: 1px solid var(--border); }
-.dt-obj.open .dt-obj-fields { display: block; }
-.dt-obj-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 12px;
-}
-.dt-obj-field-label { flex: 1; }
-.dt-obj-field-name { color: var(--text-hint); font-family: var(--mono); font-size: 11px; }
-.dt-obj-field-type {
-  color: var(--text-sec);
-  background: var(--bg);
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 10px;
-}
 
 /* ========== FULL-WINDOW MODE (popup.html?mode=window) ========== */
 /* A workbench: data model down the left, a tabbed editor over a paged results
@@ -3320,7 +3187,6 @@ body.mode-window .inspector {
   color: var(--text-hint);
 }
 
-.insp-label-recent { padding: 14px 14px 6px; }
 
 .insp-empty {
   font-size: 12px;
@@ -3476,31 +3342,6 @@ body.mode-window .dt-tree-panel {
 .ac-badge.sub { background: rgba(20,120,130,.13); color: #1d5f66; }
 
 /* Relationships, after an opened object's fields: ↑ lookups, ↓ child records. */
-.dm-rel-head {
-  padding: 7px 10px 3px 26px;
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--text-hint);
-}
-
-.dm-rel-note {
-  padding: 4px 10px 6px 26px;
-  font-size: 10px;
-  color: var(--text-hint);
-}
-
-body.mode-window .dm-rel-head {
-  padding: 8px 8px 2px;
-  font-family: var(--mono);
-  font-weight: 400;
-  font-size: 10px;
-  letter-spacing: .08em;
-}
-
-body.mode-window .dm-rel-note { padding: 4px 8px; }
-
 body.mode-window .dm-rel .dm-row-name {
   flex: 0 0 auto;
   max-width: 64%;
