@@ -6268,11 +6268,14 @@ function activeTab() {
 }
 
 // An untitled tab is named after the object it queries — its label when the
-// model is loaded, the API name otherwise.
+// model is loaded, the API name otherwise. The top-level FROM, not the first
+// one in the text: a subquery in SELECT has a FROM of its own, and a target
+// option (FROM ALLVERSIONS documents) isn't the object.
 function derivedTabLabel(t) {
-  const m = (t.query || "").match(/\bFROM\s+(\w+)/i);
-  if (!m) return "New query";
-  return modelObject(m[1])?.label || m[1];
+  const q = t.query || "";
+  const { target, targetEnd } = vqlShape(q);
+  if (!target) return "New query";
+  return modelObject(target)?.label || q.slice(targetEnd - target.length, targetEnd);
 }
 
 function tabLabel(t) {
