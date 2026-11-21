@@ -144,7 +144,7 @@ closeBtn.addEventListener("click", () => {
 // The overlay lives in an iframe owned by content.js on the Vault page; only it
 // can tear the wrapper down.
 function closeOverlay() {
-  window.parent.postMessage({ type: "vault-dweller-close" }, "*");
+  window.parent.postMessage({ type: "dweller-close" }, "*");
 }
 
 // The iframe wrapper has no intrinsic height, so it would leave dead space below
@@ -166,7 +166,7 @@ if (!WINDOW_MODE) {
     const height = Math.ceil(bottom);
     if (height === lastHeight) return;
     lastHeight = height;
-    window.parent.postMessage({ type: "vault-dweller-height", height }, "*");
+    window.parent.postMessage({ type: "dweller-height", height }, "*");
   };
 
   // Polled rather than observed. The height changes from many places — results,
@@ -6222,7 +6222,7 @@ function vqlLimitAdvice(q) {
   const shape = vqlShape(q);
   const notes = [];
   if (shape.show && !apiAtLeast("v25.2")) {
-    notes.push(`SHOW needs Vault API v25.2 or later. Vault Dweller is using ${state.apiVersion || API_VERSION_FLOOR} with this vault.`);
+    notes.push(`SHOW needs Vault API v25.2 or later. Dweller is using ${state.apiVersion || API_VERSION_FLOOR} with this vault.`);
   }
   const rels = vqlRelationships(shape);
   if (rels.size > 10) {

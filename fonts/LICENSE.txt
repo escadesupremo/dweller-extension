@@ -1,4 +1,4 @@
-Fonts bundled with Vault Dweller
+Fonts bundled with Dweller
 =================================
 
 Barlow Condensed - SIL Open Font License 1.1

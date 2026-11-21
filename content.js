@@ -1,14 +1,14 @@
-// Injects Vault Dweller popup.html as an overlay iframe on Vault pages.
+// Injects Dweller's popup.html as an overlay iframe on Vault pages.
 // Toggled by clicking the extension toolbar icon.
 
 (function () {
   // The toolbar click injects this file again when the page was still loading.
   // One set of listeners is enough; two would open and close the panel at once.
-  if (window.__vaultDwellerOverlay) return;
-  window.__vaultDwellerOverlay = true;
+  if (window.__dwellerOverlay) return;
+  window.__dwellerOverlay = true;
 
-  const IFRAME_ID = "vault-dweller-overlay-iframe";
-  const WRAP_ID = "vault-dweller-overlay-wrap";
+  const IFRAME_ID = "dweller-overlay-iframe";
+  const WRAP_ID = "dweller-overlay-wrap";
 
   function create() {
     const wrap = document.createElement("div");
@@ -18,7 +18,7 @@
       top: "20px",
       right: "20px",
       width: "660px",
-      // Height tracks the panel's own content (see vault-dweller-height below),
+      // Height tracks the panel's own content (see dweller-height below),
       // so only the width is user-resizable. It is eased rather than snapped:
       // the panel reports a new height whenever its content changes size.
       height: "300px",
@@ -87,10 +87,10 @@
   // any script on the host page can post to us.
   window.addEventListener("message", (e) => {
     const type = e.data?.type;
-    if (type !== "vault-dweller-close" && type !== "vault-dweller-height") return;
+    if (type !== "dweller-close" && type !== "dweller-height") return;
     const iframe = document.getElementById(IFRAME_ID);
     if (!iframe || e.source !== iframe.contentWindow) return;
-    if (type === "vault-dweller-close") close();
+    if (type === "dweller-close") close();
     else setHeight(e.data.height);
   });
 })();

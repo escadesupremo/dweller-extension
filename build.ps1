@@ -9,7 +9,7 @@
 # with backslashes, which the ZIP spec does not permit and which can leave the
 # uploaded extension unable to find its own files.
 #
-#   .\build.ps1                 -> dist\vault-dweller-<version>.zip
+#   .\build.ps1                 -> dist\dweller-<version>.zip
 #   .\build.ps1 -OutDir C:\tmp  -> writes elsewhere
 
 param(
@@ -66,7 +66,7 @@ foreach ($item in $include) {
 }
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-$zip = Join-Path $OutDir "vault-dweller-$version.zip"
+$zip = Join-Path $OutDir "dweller-$version.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 
 Add-Type -AssemblyName System.IO.Compression
