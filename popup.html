@@ -21,17 +21,17 @@
           <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span class="tab-label">Query</span>
         </button>
-        <button class="tab" data-tab="datamodel" title="Data model">
+        <button class="tab" data-tab="datamodel" title="Data Model">
           <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
           <span class="tab-label">Models</span>
         </button>
-        <button class="tab" data-tab="doctypes" title="Document types">
+        <button class="tab" data-tab="doctypes" title="Document Types">
           <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           <span class="tab-label">Document Types</span>
         </button>
       </div>
       <!-- Full window: the History panel, beside Models in the rail. -->
-      <button id="rail-history" class="rail-btn window-only" type="button" title="Query history" aria-label="Query history" aria-pressed="false">
+      <button id="rail-history" class="rail-btn window-only" type="button" title="Query History" aria-label="Query history" aria-pressed="false">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
       </button>
 
@@ -54,10 +54,10 @@
         <!-- A page with a shield on it: a policy, about protecting your data. -->
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3"/><path d="M14 3v5h5v2"/><path d="M17 13l4 1.5v2.5c0 2.2-1.6 3.6-4 4.5-2.4-.9-4-2.3-4-4.5v-2.5z"/></svg>
       </a>
-      <button id="expand-btn" class="topbar-icon topbar-icon-accent" title="Open full window">
+      <button id="expand-btn" class="topbar-icon topbar-icon-accent" title="Open Full Window">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
       </button>
-      <button id="collapse-btn" class="topbar-icon topbar-icon-accent hidden" title="Back to popup" aria-label="Exit full screen">
+      <button id="collapse-btn" class="topbar-icon topbar-icon-accent hidden" title="Back to Popup" aria-label="Exit full screen">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
       </button>
       <button id="close-btn" class="topbar-icon topbar-icon-danger" title="Close">
@@ -82,18 +82,18 @@
             <!-- INSERT slides the helper chips out inside this row; while they're
                  out the row's other chips step aside. Each chip inserts at the
                  cursor and closes the row again. -->
-            <button id="insert-chip" class="op-chip insert-chip" type="button" aria-expanded="false" aria-controls="insert-row" title="Insert VQL at the cursor">INSERT <svg class="insert-caret" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+            <button id="insert-chip" class="op-chip insert-chip" type="button" aria-expanded="false" aria-controls="insert-row" title="Insert VQL Operator">INSERT <svg class="insert-caret" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
             <div id="insert-row" class="insert-row" role="group" aria-label="Insert at the cursor" hidden>
-              <button class="op-chip" type="button" data-op="WHERE" title="WHERE: filter the records">WHERE</button>
-              <button class="op-chip" type="button" data-op="AND" title="AND: add another condition">AND</button>
-              <button class="op-chip" type="button" data-op="EQ" title="= '': equals a value">=</button>
-              <button class="op-chip" type="button" data-op="CONTAINS" title="CONTAINS (''): any value in a list">CONTAINS</button>
-              <button class="op-chip" type="button" data-op="LIKE" title="LIKE '': a pattern, % as the wildcard">LIKE</button>
+              <button class="op-chip" type="button" data-op="WHERE" title="WHERE Clause">WHERE</button>
+              <button class="op-chip" type="button" data-op="AND" title="AND: Add Another Condition">AND</button>
+              <button class="op-chip" type="button" data-op="EQ" title="= '': Equals">=</button>
+              <button class="op-chip" type="button" data-op="CONTAINS" title="CONTAINS (''): Any Value in a List">CONTAINS</button>
+              <button class="op-chip" type="button" data-op="LIKE" title="LIKE '': Like Clause">LIKE</button>
               <span class="insert-sep" aria-hidden="true"></span>
               <span class="insert-word" aria-hidden="true">Last</span>
-              <button class="op-chip insert-num" type="button" data-days="30" title="The date 30 days ago, midnight UTC" aria-label="Last 30 days">30</button>
-              <button class="op-chip insert-num" type="button" data-days="90" title="The date 90 days ago, midnight UTC" aria-label="Last 90 days">90</button>
-              <button class="op-chip insert-num" type="button" data-days="365" title="The date 365 days ago, midnight UTC" aria-label="Last 365 days">365</button>
+              <button class="op-chip insert-num" type="button" data-days="30" title="Date Set 30 Days Ago, Midnight UTC" aria-label="Last 30 days">30</button>
+              <button class="op-chip insert-num" type="button" data-days="90" title="Date Set 90 Days Ago, Midnight UTC" aria-label="Last 90 days">90</button>
+              <button class="op-chip insert-num" type="button" data-days="365" title="Date Set 365 Days Ago, Midnight UTC" aria-label="Last 365 days">365</button>
               <span class="insert-word" aria-hidden="true">days</span>
             </div>
             <!-- Field Names / Field Labels: one chip that names the setting in
@@ -110,8 +110,8 @@
                  after FROM. With one in the query the pill carries its term, and
                  the × takes it out again. -->
             <span id="find-wrap" class="find-wrap">
-              <button id="find-chip" class="op-chip find-chip" type="button" aria-expanded="false" aria-controls="find-row" title="Search every field and the content (FIND … SCOPE ALL)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg><span id="find-chip-label">FIND</span></button>
-              <button id="find-clear" class="find-clear" type="button" title="Take the FIND line out of the query" aria-label="Remove the search" hidden>&times;</button>
+              <button id="find-chip" class="op-chip find-chip" type="button" aria-expanded="false" aria-controls="find-row" title="Search Every Field"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg><span id="find-chip-label">FIND</span></button>
+              <button id="find-clear" class="find-clear" type="button" title="Remove FIND From Query" aria-label="Remove the search" hidden>&times;</button>
             </span>
             <div id="find-row" class="find-row" hidden>
               <input id="find-input" class="find-input" type="text" placeholder="Search every field and the content" aria-label="Search text" spellcheck="false" autocomplete="off" maxlength="250" />
@@ -120,11 +120,11 @@
             <!-- History drops its list under itself. The full window has the
                  rail's History panel instead. -->
             <div class="history-wrap">
-              <button id="history-btn" class="history-corner" type="button" title="Query history"
+              <button id="history-btn" class="history-corner" type="button" title="Query History"
                       aria-haspopup="true" aria-expanded="false" aria-controls="history-popover">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
                 <span class="history-corner-label">History</span>
-                <kbd class="history-corner-key" title="↓ in an empty editor steps through past queries">↓</kbd>
+                <kbd class="history-corner-key" title="Past Queries">↓</kbd>
               </button>
               <div id="history-popover" class="history-popover hidden">
                 <div class="popover-header">
@@ -137,8 +137,8 @@
             <!-- Full-window only. Clear, Cancel and Run are moved in here by
                  popup.js, so the overlay keeps them under the editor. -->
             <div id="editor-tools" class="editor-tools window-only">
-              <button id="format-btn" class="tool-btn" type="button" title="Reflow the query one clause per line and upper-case keywords">Format</button>
-              <label class="limit-field" title="Most rows to fetch when the query has no MAXROWS of its own">Limit
+              <button id="format-btn" class="tool-btn" type="button" title="Prettify Query">Format</button>
+              <label class="limit-field" title="Row Limit on Query">Limit
                 <select id="limit-select">
                   <option value="100">100</option>
                   <option value="500">500</option>
@@ -169,8 +169,8 @@
                  it the pill shrinks to its icon. -->
           </div>
           <div class="query-actions">
-            <button id="run-btn" class="btn btn-primary" title="Runs the query and fetches ALL pages concurrently. For stable paging on large sets, include an ORDER BY.">Run Query</button>
-            <button id="cancel-btn" class="btn btn-outline hidden" title="Stop fetching further pages and discard partial results">Cancel</button>
+            <button id="run-btn" class="btn btn-primary" title="Fetch All Pages, MAXROWS Disabled">Run Query</button>
+            <button id="cancel-btn" class="btn btn-outline hidden" title="Cancel Query">Cancel</button>
             <button id="clear-btn" class="btn btn-outline">Clear</button>
             <span id="query-time" class="query-meta"></span>
           </div>
@@ -179,7 +179,7 @@
         <!-- Full window: drag to share the height between editor and results;
              double-click to let the editor size itself again. -->
         <div id="split-handle" class="split-handle window-only" role="separator" aria-orientation="horizontal"
-             aria-label="Resize the editor" tabindex="0" title="Drag to resize · double-click to reset"></div>
+             aria-label="Resize the editor" tabindex="0" title="Drag to Resize, Double Click to Reset"></div>
 
         <div id="results-panel" class="results-panel">
           <!-- The controls only show once there are rows (.has-results); in
@@ -213,8 +213,8 @@
             <span id="results-range"></span>
             <span id="results-hint" class="results-hint"></span>
             <div class="pager">
-              <button id="page-prev" class="btn btn-small btn-outline pager-arrow" type="button" title="Previous page" aria-label="Previous page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
-              <button id="page-next" class="btn btn-small btn-outline pager-arrow" type="button" title="Next page" aria-label="Next page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+              <button id="page-prev" class="btn btn-small btn-outline pager-arrow" type="button" title="Previous Page" aria-label="Previous page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+              <button id="page-next" class="btn btn-small btn-outline pager-arrow" type="button" title="Next Page" aria-label="Next page"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
             </div>
           </div>
         </div>
@@ -261,7 +261,7 @@
             <!-- How old the model is; it loads and refreshes by itself, ↻ forces it. -->
             <span class="sync-line">
               <span id="dm-sync" class="sync-text"></span>
-              <button id="dm-refresh" class="sync-refresh" type="button" title="Check the whole data model again now" aria-label="Refresh the data model">&#8635;</button>
+              <button id="dm-refresh" class="sync-refresh" type="button" title="Reload Data Model" aria-label="Refresh the data model">&#8635;</button>
             </span>
             <div id="dm-sync-bar" class="sync-bar hidden" aria-hidden="true"><i></i></div>
           </div>
@@ -269,8 +269,8 @@
           <div class="dm-search-field">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
             <input type="text" id="dm-search" placeholder="Search objects and fields…" aria-label="Search objects and fields" />
-            <button id="dm-search-clear" class="dm-search-clear hidden" title="Clear search">&times;</button>
-            <kbd class="dm-search-key window-only" title="Press / to search">/</kbd>
+            <button id="dm-search-clear" class="dm-search-clear hidden" title="Clear Search">&times;</button>
+            <kbd class="dm-search-key window-only" title="Press / to Search">/</kbd>
           </div>
 
           <!-- The everyday objects, plus the query's and recent picks; popup.js
@@ -306,7 +306,7 @@
               <span class="dt-list-title">Document Types</span>
               <span class="sync-line">
                 <span id="dt-sync" class="sync-text"></span>
-                <button id="dt-refresh" class="sync-refresh" type="button" title="List the types, recount and re-read every type now" aria-label="Refresh document types">&#8635;</button>
+                <button id="dt-refresh" class="sync-refresh" type="button" title="Load Document Types and Counts" aria-label="Refresh document types">&#8635;</button>
               </span>
               <div id="dt-sync-bar" class="sync-bar hidden" aria-hidden="true"><i></i></div>
             </div>

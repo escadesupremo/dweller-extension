@@ -107,9 +107,7 @@ if (WINDOW_MODE) {
   // The editor's own actions sit on its toolbar, right of the operator chips.
   editorTools.append(clearBtn, cancelBtn, runBtn);
   runBtn.innerHTML = RUN_LABEL;
-  runBtn.title =
-    `Run (${IS_MAC ? "⌘" : "Ctrl"}+Enter). Fetches every page concurrently, up to the Limit when ` +
-    "the query has no MAXROWS of its own. For stable paging on large sets, include an ORDER BY.";
+  runBtn.title = "Fetch All Pages, MAXROWS Disabled";
   resultsContainer.dataset.empty = `Run a query to see its rows here · ${RUN_KEY_LABEL}`;
 }
 
@@ -517,21 +515,20 @@ function setStatus(type, text) {
   // survive as a tooltip. In the full window the pill names the vault instead.
   const connectedInWindow = type === "connected" && WINDOW_MODE && state.domain;
   statusText.textContent = connectedInWindow ? state.domain : text;
-  const api = type === "connected" && state.apiVersion ? ` · using API ${state.apiVersion}` : "";
-  statusPill.title = `${connectedInWindow ? `Connected to ${state.domain}` : text}${api}`;
+  statusPill.title = connectedInWindow ? `Connected to ${state.domain}` : text;
   if (WINDOW_MODE) {
     $("#status-api").textContent = type === "connected" && state.apiVersion ? `API ${state.apiVersion}` : "";
   }
 }
 
 // The signed-in user, shown in the full window's status bar: the address, with
-// the name and security profile in its tooltip.
+// the name in its tooltip.
 function showUserInfo(data) {
   const u = data.users?.[0]?.user || data;
   const name = [u.user_first_name__v, u.user_last_name__v].filter(Boolean).join(" ");
   const login = u.user_email__v || u.user_name__v || "";
   topbarUser.textContent = login || name;
-  topbarUser.title = [name, login, u.security_profile__v].filter(Boolean).join(" · ");
+  topbarUser.title = [name, login].filter(Boolean).join(" · ");
 }
 
 function showVqlPanel() {
@@ -732,7 +729,7 @@ function setInsertOpen(open) {
   insertRow.hidden = !open;
   operatorBar.classList.toggle("inserting", open);
   insertChip.setAttribute("aria-expanded", String(open));
-  insertChip.title = open ? "Close" : "Insert VQL at the cursor";
+  insertChip.title = open ? "Close" : "Insert VQL Operator";
   if (open) hideAc();
 }
 
@@ -850,8 +847,8 @@ function paintFindChip() {
   // leave its target outside the page.
   if (findChipLabel.innerHTML !== label) findChipLabel.innerHTML = label;
   findChip.title = on
-    ? `Searching every field and the content for “${term}”. Click to change it.`
-    : "Search every field and the content (FIND … SCOPE ALL)";
+    ? `Searching Every Field for “${term}”.`
+    : "Search Every Field";
 }
 
 function setFindHint(text, error = false) {
@@ -1527,12 +1524,7 @@ function paintValueMode() {
   valueChipLabel.textContent = VALUE_MODE_LABELS[valueMode].toUpperCase();
   // Field Labels reads as switched on (see .value-chip.on).
   valueField.classList.toggle("on", !names);
-  const tip = names
-    ? "Showing field names: picklist, lifecycle state and type values as VQL writes them " +
-      "(approved__c). Click for field labels, as the Vault UI shows them (Approved)."
-    : "Showing field labels: picklist, lifecycle state and type values as the Vault UI shows " +
-      "them (Approved). Click for field names, as VQL writes them (approved__c).";
-  valueField.title = `${tip} Documents get TONAME(), objects TOLABEL(). Changing it runs the shown results again.`;
+  valueField.title = names ? "Technical Field Names in Veeva Vault" : "Functional Field Labels in Veeva Vault";
   valueField.setAttribute("aria-label", `${VALUE_MODE_LABELS[valueMode]}. ${names ? "Click for field labels." : "Click for field names."}`);
 }
 
@@ -2433,10 +2425,7 @@ function paintModelSync() {
   else if (total) text = `checked ${ageText(Math.min(...objs.map((o) => o.checkedAt)))}`;
   dmSync.textContent = text;
   dmSync.classList.toggle("error", !!sync.modelError);
-  dmSync.title =
-    (sync.modelListAt ? `Object list checked ${ageText(sync.modelListAt)}. ` : "") +
-    "Fields load by themselves, the ones you use first, and are fetched again when used once they're over 7 days old. " +
-    "↻ checks everything again now.";
+  dmSync.title = sync.modelListAt ? `Object list checked ${ageText(sync.modelListAt)}.` : "";
   dmRefresh.disabled = !state.sessionId;
   dmRefresh.classList.toggle("spinning", !!state.sessionId && sync.fast && (sync.modelListing || filling));
   dmSyncBar.classList.toggle("hidden", !filling);
@@ -3037,13 +3026,13 @@ function dmChipsHtml() {
       `<span class="dm-ochip dm-ochip-obj${on ? " on" : ""}">` +
       `<button type="button" class="dm-ochip-pick" data-pick="${esc(o.name)}" aria-pressed="${on}" title="${esc(o.name)}">` +
       `${esc(o.label || o.name)} <span class="dm-n">${(o.fields?.length || 0).toLocaleString()}</span></button>` +
-      `<button type="button" class="dm-ochip-x" data-unpin="${esc(o.name)}" title="Remove from the row" ` +
+      `<button type="button" class="dm-ochip-x" data-unpin="${esc(o.name)}" title="Remove From Row" ` +
       `aria-label="${esc(`Remove ${o.label || o.name}`)}">&times;</button></span>`;
   }
   const total = state.dataModel.objects.length;
   h +=
     `<button type="button" class="dm-ochip dm-ochip-all${dmAllObjects ? " on" : ""}" data-all="1" ` +
-    `aria-pressed="${dmAllObjects}" title="List every object">All objects <span class="dm-n">${total.toLocaleString()}</span></button>`;
+    `aria-pressed="${dmAllObjects}" title="List Every Object">All objects <span class="dm-n">${total.toLocaleString()}</span></button>`;
   return h;
 }
 
@@ -3064,7 +3053,7 @@ function paintDmSwitch(obj) {
     btn.querySelector(".dm-n").textContent = count[v] == null ? "" : count[v].toLocaleString();
     btn.disabled = v !== "fields" && !count[v];
     // A model saved before relationships were kept has none to show yet.
-    btn.title = count[v] == null ? "Not loaded yet" : "";
+    btn.title = count[v] == null ? "Not Loaded Yet" : "";
   }
 }
 
@@ -3083,7 +3072,7 @@ function dmObjectListHtml() {
   h += `<div class="dm-section">${featured.length ? "All objects" : "Objects"} · ${objs.length.toLocaleString()}</div>`;
   for (const o of objs) h += objectRowHtml(o, "");
   if (targets.length) {
-    h += `<div class="dm-section" title="Query targets that aren't Vault objects, from SHOW TARGETS">Other query targets · ${targets.length.toLocaleString()}</div>`;
+    h += `<div class="dm-section" title="Query Targets that are not Vault Objects, from SHOW TARGETS">Other query targets · ${targets.length.toLocaleString()}</div>`;
     for (const o of targets) h += objectRowHtml(o, "");
   }
   return h;
@@ -3915,10 +3904,10 @@ function cellLockReason(ri, key) {
   const props = resultMeta?.rows.get(String(queryRows[ri]?.id));
   if (!props) return "";
   const k = key.toLowerCase();
-  if (props.redacted.has(k)) return "Redacted for you on this record (protected personal data).";
-  if (props.hidden.has(k)) return "Hidden from you on this record (Atomic Security).";
-  if (!props.canEdit) return "You don't have edit permission on this record.";
-  if (props.edit && !props.edit.has(k)) return "Read-only for you on this record.";
+  if (props.redacted.has(k)) return "Redacted for User on Record.";
+  if (props.hidden.has(k)) return "Hidden from User on Record.";
+  if (!props.canEdit) return "User Does Not Have Edit Permission on Record.";
+  if (props.edit && !props.edit.has(k)) return "This Record is Read-Only for User.";
   return "";
 }
 
@@ -3979,7 +3968,7 @@ function subCellHtml(ri, key, v) {
   if (!v.data.length && !(Number(v.responseDetails?.total) > 0)) {
     return `<td class="cell-subq"><span class="sub-none">0 rows</span></td>`;
   }
-  const tip = WINDOW_MODE ? `Related records (${key}). Shown in the inspector.` : `Related records (${key}). Click to show them.`;
+  const tip = `Related records (${key}).`;
   return (
     `<td class="cell-subq"><button type="button" class="sub-chip" data-row="${ri}" data-sub="${esc(key)}" ` +
     `${WINDOW_MODE ? "" : 'aria-expanded="false" '}title="${esc(tip)}">${esc(subSummary(v))}</button></td>`
@@ -4108,7 +4097,7 @@ function paintPanelPage() {
 
       if (canEdit) {
         // An edit made before paging away and back still shows, marked.
-        html += `<td class="editable${edit ? " dirty" : ""}" data-row="${ri}" data-field="${esc(key)}" title="Click to edit">${esc(display)}</td>`;
+        html += `<td class="editable${edit ? " dirty" : ""}" data-row="${ri}" data-field="${esc(key)}" title="Click to Edit">${esc(display)}</td>`;
       } else if (isId) {
         html += `<td class="col-id" title="${esc(display)}">${esc(display)}</td>`;
       } else {
@@ -4668,8 +4657,7 @@ function paintTypesSync() {
   dtSync.textContent = text;
   dtSync.classList.toggle("error", !!sync.typesError || (!sync.counting && failed.length > 0));
   dtSync.title =
-    "Record counts refresh while this tab is open, once they're over a day old. " +
-    "A type's fields are fetched again when you open it. ↻ lists the types, recounts and re-reads every type now." +
+    "Record Counts Per Document Type" +
     (failed.length ? ` Not counted: ${failed.map((t) => `${t.label} (${t.countError})`).join(", ")}.` : "");
   dtRefresh.disabled = !state.sessionId;
   dtRefresh.classList.toggle("spinning", !!state.sessionId && sync.fast && (sync.typesListing || sync.counting));
@@ -4923,12 +4911,12 @@ const DT_FILTERS = { all: "All Fields", user: "User Fields" };
 
 function dtFillTag(p) {
   const t = String(p.type || "");
-  if (/^(formula|lookup)$/i.test(t)) return { tag: "system", why: `${t.toLowerCase()} field: Vault works it out` };
-  if (p.systemAttribute === true && p.editable === false) return { tag: "system", why: "Vault manages this field" };
-  if (p.editable === false) return { tag: "system", why: "read-only for you: set by Vault, a rule or an integration — or your access" };
+  if (/^(formula|lookup)$/i.test(t)) return { tag: "system", why: `${t.charAt(0).toUpperCase()}${t.slice(1).toLowerCase()} Field` };
+  if (p.systemAttribute === true && p.editable === false) return { tag: "system", why: "Vault Managed Field" };
+  if (p.editable === false) return { tag: "system", why: "Read-Only for User" };
   const def = Array.isArray(p.defaultValue) ? p.defaultValue.join(", ") : p.defaultValue;
-  if (def != null && def !== "") return { tag: "default", why: `Vault pre-fills it (${def}); people may change it` };
-  return { tag: "people", why: p.systemAttribute ? "a standard field people fill in" : "people fill this in" };
+  if (def != null && def !== "") return { tag: "default", why: "Default Value" };
+  return { tag: "people", why: p.systemAttribute ? "Vault Standard Field" : "Vault Custom Field" };
 }
 
 function dtFieldRowHtml(p) {
@@ -5427,7 +5415,7 @@ function applyDtTagFilter() {
   const where = WINDOW_MODE ? "in a new query tab" : "in the editor";
   btn.title = n
     ? `Write SELECT ${n === 1 ? "this field" : `these ${n} fields`} FROM ${dtSelected?.label || "this type"} ${where}`
-    : "None of these fields can be queried";
+    : "Non-Queryable Fields";
 }
 
 function dtQueryFields(type) {
@@ -6354,11 +6342,11 @@ function renderQueryTabs() {
       `aria-selected="${on}" data-tab-id="${esc(t.id)}" title="${esc(tip)}">` +
       `<span class="qtab-label">${esc(label)}</span>` +
       (on
-        ? `<button type="button" class="qtab-close" data-close="${esc(t.id)}" title="Close tab" aria-label="Close ${esc(label)}">&times;</button>`
+        ? `<button type="button" class="qtab-close" data-close="${esc(t.id)}" title="Close Tab" aria-label="Close ${esc(label)}">&times;</button>`
         : "") +
       "</div>";
   }
-  html += '<button type="button" class="qtab-new" title="New query tab" aria-label="New query tab">+</button>';
+  html += '<button type="button" class="qtab-new" title="New Query" aria-label="New query tab">+</button>';
   queryTabsEl.innerHTML = html;
 }
 
