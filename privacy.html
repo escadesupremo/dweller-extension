@@ -127,24 +127,24 @@
   <p class="meta">Vault Dweller · last edited 21 Nov 2026 · for version 1.0.0 and later · <a href="mailto:kristof.domokos.szabo@gmail.com">kristof.domokos.szabo@gmail.com</a></p>
 
   <div class="box">
-    <span class="box-label">The short version</span>
+    <span class="box-label">Summary</span>
     <ul class="marks">
       <li><svg class="yes" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13c2 1.5 3.5 3.5 5 6 3-6 6.5-10.5 11-14"/></svg>
-        <span><mark>No data is collected.</mark> The extension contains no analytics, telemetry, tracking or advertising code.</span></li>
+        <span><mark>No data is collected and sent from Vault Dweller.</mark> This extension contains no analytics, telemetry, tracking or advertising code.</span></li>
       <li><svg class="yes" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13c2 1.5 3.5 3.5 5 6 3-6 6.5-10.5 11-14"/></svg>
-        <span>Vault data goes to <mark>your Vault</mark>. Requests are made to the Vault you are signed in to, using your existing session.</span></li>
+        <span>Vault data goes to <mark>your Vault</mark>. Requests are made to the Vault you are signed in to, using your existing session information and credentials.</span></li>
       <li><svg class="yes" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13c2 1.5 3.5 3.5 5 6 3-6 6.5-10.5 11-14"/></svg>
-        <span>Your session is <mark>not stored</mark>. It is read when needed and used only for requests to that Vault.</span></li>
+        <span>Your session is <mark>not stored</mark>. It is read when needed and used only for requests to the connected Vault.</span></li>
       <li><svg class="yes" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13c2 1.5 3.5 3.5 5 6 3-6 6.5-10.5 11-14"/></svg>
         <span><mark>No other site is contacted.</mark> Query results, document contents and field values remain in the browser.</span></li>
     </ul>
   </div>
 
-  <h2>What's stored on your device</h2>
-  <p>The following is held in Chrome's local extension storage on your device. <strong>None of it is transmitted.</strong></p>
+  <h2>Stored on Device</h2>
+  <p>The following information is held in Chrome's local extension storage on your device. <strong>No information is sent to any other devices.</strong></p>
   <ul>
-    <li><strong>Vault domain</strong>, for reconnecting to the same Vault</li>
-    <li><strong>Query history</strong>, for re-running recent VQL</li>
+    <li><strong>Vault domain information</strong>, for reconnecting to the same Vault</li>
+    <li><strong>Query history</strong>, to quickly access previously used queries</li>
     <li><strong>Saved query tabs</strong>, for keeping the full-window editor's open queries between sessions; closing a tab deletes its query</li>
     <li><strong>Cached Vault metadata and counts</strong>: object and document-type definitions, document counts per type, and how often each field is filled in (worked out from a small sample of records; only the percentages are kept), for browsing the data model (including the objects you opened recently), ranking fields and autocomplete without fetching them again</li>
     <li><strong>Display settings</strong>: Field Names or Labels, the row Limit, panel layout and editor height</li>
@@ -152,7 +152,7 @@
   <p class="aside"><span class="aside-note">to delete it →</span>
     <span><strong>Clear</strong> deletes query history; uninstalling removes all stored data.</span></p>
 
-  <h2>Your Vault session</h2>
+  <h2>Vault Session Information</h2>
   <p>The extension reads the Veeva Vault session cookie (<code>TK</code>) for the domain you are signed in to, and uses it to authenticate requests to that same Vault.</p>
   <ul class="marks">
     <li><svg class="no" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 5c4 4.5 9 9.5 14 14M19 4.5C14 9 9.5 14 5 19.5"/></svg>
@@ -164,26 +164,13 @@
   </ul>
   <p>Requests go only to the Vault you are signed in to. The extension contacts no other site and has no server of its own.</p>
 
-  <h2>What we do not do</h2>
-  <ul class="marks">
-    <li><svg class="no" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 5c4 4.5 9 9.5 14 14M19 4.5C14 9 9.5 14 5 19.5"/></svg>
-      <span>Sell or transfer data to third parties for advertising or any unrelated purpose.</span></li>
-    <li><svg class="no" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 5c4 4.5 9 9.5 14 14M19 4.5C14 9 9.5 14 5 19.5"/></svg>
-      <span>Use data for creditworthiness or lending purposes.</span></li>
-    <li><svg class="no" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 5c4 4.5 9 9.5 14 14M19 4.5C14 9 9.5 14 5 19.5"/></svg>
-      <span>Use data for any purpose unrelated to the extension's single function: working with Veeva Vault data and its API.</span></li>
-    <li><svg class="no" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 5c4 4.5 9 9.5 14 14M19 4.5C14 9 9.5 14 5 19.5"/></svg>
-      <span>Retain data. None is collected, so none is held, shared or exposed.</span></li>
-  </ul>
-
-  <h2>Also</h2>
+  <h2>Further Information</h2>
   <p><strong>Children.</strong> The extension is a professional developer tool and is not directed at children.</p>
   <p><strong>Changes.</strong> Material changes are published here with an updated date, alongside the release that introduces them.</p>
-  <p><strong>Contact.</strong> <a href="mailto:kristof.domokos.szabo@gmail.com">kristof.domokos.szabo@gmail.com</a></p>
+  <p><strong>Contact.</strong> Kristof Domokos Szabo, <a href="mailto:kristof.domokos.szabo@gmail.com">kristof.domokos.szabo@gmail.com</a></p>
 
   <footer>
-    <p>Vault Dweller is an independent tool. It is not affiliated with, endorsed by, or sponsored by Veeva Systems Inc. “Veeva” and “Vault” are trademarks of their respective owners.</p>
-    <p>This page loads nothing from third parties.</p>
+    <p>Vault Dweller is an independent tool. It is not affiliated with, endorsed by, or sponsored by Veeva Systems Inc. “Veeva” and “Vault” are trademarks of their respective owner.</p>
   </footer>
 
 </main>
