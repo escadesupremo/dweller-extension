@@ -65,16 +65,12 @@
       </button>
     </div>
 
-    <div id="connection-panel" class="hidden"></div>
-    <input type="hidden" id="vault-domain" />
-
     <!-- VQL Panel -->
     <div id="vql-panel" class="hidden" data-active-tab="query">
       <!-- Query Tab -->
       <div id="tab-query" class="tab-content active">
         <div class="card query-card">
-          <!-- Full-window only: one editor, several saved queries. popup.js
-               puts the Values setting at the strip's far end. -->
+          <!-- Full-window only: one editor, several saved queries. -->
           <div id="query-tabbar" class="query-tabbar window-only">
             <div id="query-tabs" class="query-tabs" role="tablist" aria-label="Query tabs"></div>
           </div>
@@ -163,10 +159,6 @@
               ></textarea>
             </div>
             <div id="autocomplete-dropdown" class="autocomplete-dropdown hidden"></div>
-            <!-- Query history, pinned to the editor's corner where a code block
-                 keeps Copy. Label and ↓ hint show while the editor is empty,
-                 which is when ↓ steps back through past queries; with text in
-                 it the pill shrinks to its icon. -->
           </div>
           <div class="query-actions">
             <button id="run-btn" class="btn btn-primary" title="Fetch All Pages, MAXROWS Disabled">Run Query</button>
@@ -228,7 +220,6 @@
           <div class="insp-label insp-label-row">Selected row
             <button id="insp-close" class="insp-close" type="button" title="Close (Esc)" aria-label="Close the selected row">&times;</button>
           </div>
-          <div id="insp-empty" class="insp-empty">Select a row in the results to see every field it returned.</div>
           <div id="insp-body" class="insp-body hidden">
             <div id="insp-title" class="insp-title"></div>
             <dl id="insp-fields" class="insp-fields"></dl>
@@ -321,13 +312,12 @@
 
     </div>
 
-    <!-- Full window: the vault, the API version and the model loads, along the
-         bottom. popup.js moves the connection pill and the load chips in. -->
+    <!-- Full window: the vault, the signed-in user and the API version, along
+         the bottom. popup.js moves the connection pill in. -->
     <footer id="statusbar" class="statusbar window-only">
       <div id="status-left" class="status-left"></div>
       <span id="status-api" class="status-api"></span>
       <div class="status-spacer"></div>
-      <div id="status-right" class="status-right"></div>
     </footer>
   </div>
 

@@ -2,6 +2,11 @@
 // Toggled by clicking the extension toolbar icon.
 
 (function () {
+  // The toolbar click injects this file again when the page was still loading.
+  // One set of listeners is enough; two would open and close the panel at once.
+  if (window.__vaultDwellerOverlay) return;
+  window.__vaultDwellerOverlay = true;
+
   const IFRAME_ID = "vault-dweller-overlay-iframe";
   const WRAP_ID = "vault-dweller-overlay-wrap";
 
@@ -15,7 +20,7 @@
       width: "660px",
       // Height tracks the panel's own content (see vault-dweller-height below),
       // so only the width is user-resizable. It is eased rather than snapped:
-      // the panel reports a new height whenever an answer lands or opens.
+      // the panel reports a new height whenever its content changes size.
       height: "300px",
       transition: "height .22s cubic-bezier(.4, 0, .2, 1)",
       minWidth: "360px",
@@ -32,6 +37,9 @@
 
     const iframe = document.createElement("iframe");
     iframe.id = IFRAME_ID;
+    // Copy JSON and the value chips write to the clipboard, which a frame from
+    // another origin may only do when the page embedding it allows it.
+    iframe.allow = "clipboard-write";
     iframe.src = chrome.runtime.getURL("popup.html");
     Object.assign(iframe.style, {
       width: "100%",
@@ -40,27 +48,9 @@
       display: "block",
     });
 
-    // The panel sizes its conversation to the room actually available. It
-    // cannot read that itself: inside the iframe the viewport is whatever
-    // height we just gave it, so asking there would be circular.
-    iframe.addEventListener("load", postSpace);
-
     wrap.appendChild(iframe);
     document.documentElement.appendChild(wrap);
   }
-
-  function postSpace() {
-    const iframe = document.getElementById(IFRAME_ID);
-    if (!iframe || !iframe.contentWindow) return;
-    // Addressed to the extension origin rather than "*", so the message is not
-    // delivered if the frame is ever navigated elsewhere.
-    iframe.contentWindow.postMessage(
-      { type: "vault-dweller-space", height: window.innerHeight - 40 },
-      new URL(chrome.runtime.getURL("popup.html")).origin
-    );
-  }
-
-  window.addEventListener("resize", postSpace);
 
   function toggle() {
     const existing = document.getElementById(WRAP_ID);

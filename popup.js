@@ -2,7 +2,6 @@
 let state = {
   sessionId: null,
   domain: null,
-  user: null,
   history: [],
   dataModel: null,
   // The Vault API version this vault is called at; set on connect.
@@ -12,11 +11,9 @@ let state = {
 // ===================== DOM REFS =====================
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
-const connectionPanel = $("#connection-panel");
 const vqlPanel = $("#vql-panel");
 const statusPill = $("#status-pill");
 const statusText = $("#status-text");
-const domainInput = $("#vault-domain");
 const vqlInput = $("#vql-input");
 const runBtn = $("#run-btn");
 const cancelBtn = $("#cancel-btn");
@@ -107,7 +104,6 @@ if (WINDOW_MODE) {
   // The editor's own actions sit on its toolbar, right of the operator chips.
   editorTools.append(clearBtn, cancelBtn, runBtn);
   runBtn.innerHTML = RUN_LABEL;
-  runBtn.title = "Fetch All Pages, MAXROWS Disabled";
   resultsContainer.dataset.empty = `Run a query to see its rows here · ${RUN_KEY_LABEL}`;
 }
 
@@ -187,12 +183,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     "vaultDomain", "queryHistory", "queryTabs", "queryLimit",
     "valueMode", "explorerPanel", "editorHeight",
   ]);
-  if (saved.vaultDomain) domainInput.value = saved.vaultDomain;
   if (VALUE_MODES.includes(saved.valueMode)) valueMode = saved.valueMode;
   paintValueMode();
   if (saved.queryHistory) state.history = saved.queryHistory;
-  // Per-instance data model loading happens after autoConnect resolves the current domain.
-  // Legacy single-key storage is migrated lazily inside loadDataModelForDomain().
+  // Per-vault data loads once autoConnect knows the domain; caches from older
+  // versions are moved to per-vault keys by migrateVaultCaches().
   if (WINDOW_MODE) initWorkbench(saved);
   renderHistory();
 
@@ -212,12 +207,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
       domain = hostOf(tab?.url);
     }
-    if (isVaultHost(domain)) {
-      domainInput.value = domain;
-      autoConnect(domain);
-    }
+    if (isVaultHost(domain)) autoConnect(domain);
   } catch (e) {
-    // user can connect manually
+    // No vault tab to read: the panel stays disconnected.
   }
 });
 
@@ -271,10 +263,9 @@ function initSegmented(rootEl, optSelector, thumbSelector) {
       return;
     }
     // offsetLeft/offsetWidth, not getBoundingClientRect: rects are in
-    // transformed coordinates, and the popover this can sit inside animates a
-    // scale() on open — measuring mid-animation would bake the scale into the
-    // CSS lengths. Both roots are position:relative, so an option's offsetParent
-    // is the root, which is also the thumb's containing block.
+    // transformed coordinates, so a transform on an ancestor would bake into the
+    // CSS lengths. The root is position:relative, so an option's offsetParent is
+    // the root, which is also the thumb's containing block.
     if (!active.offsetWidth) {
       thumb.style.opacity = "0";
       return;
@@ -318,7 +309,7 @@ function initSegmented(rootEl, optSelector, thumbSelector) {
     if (e.button !== 0) return;
     // The full window stacks the tabs as a rail, where every option shares one
     // x position; dragging there would always land on the first.
-    if (WINDOW_MODE && rootEl.classList.contains("tabs")) return;
+    if (WINDOW_MODE) return;
     rootEl.classList.add("dragging");
     let last = optAtX(e.clientX);
     const onMove = (ev) => {
@@ -342,7 +333,7 @@ const paintTabThumb = initSegmented($(".tabs"), ".tab", ".tab-thumb");
 // ===================== CONNECTION =====================
 async function autoConnect(domain) {
   // The one gate every connection passes through, whether the domain came from
-  // a tab, from storage, or from the field.
+  // a tab or from storage.
   if (!isVaultHost(domain)) {
     setStatus("disconnected", "Not a Vault domain.");
     return;
@@ -364,13 +355,7 @@ async function autoConnect(domain) {
   state.domain = domain;
   setStatus("connecting", "Validating session via /objects/users/me...");
 
-  const userResult = await chrome.runtime.sendMessage({
-    action: "apiCall",
-    domain: domain,
-    sessionId: state.sessionId,
-    endpoint: "/objects/users/me",
-    method: "GET",
-  });
+  const userResult = await apiCall("/objects/users/me");
 
   if (!userResult.success || userResult.data?.responseStatus === "FAILURE") {
     const errMsg =
@@ -380,7 +365,6 @@ async function autoConnect(domain) {
     return;
   }
 
-  state.user = userResult.data;
   // Called at the newest version both sides know, so newer VQL (SHOW, TRIM(),
   // the attachment functions…) works where the vault has it.
   await detectApiVersion();
@@ -532,7 +516,6 @@ function showUserInfo(data) {
 }
 
 function showVqlPanel() {
-  connectionPanel.classList.add("hidden");
   vqlPanel.classList.remove("hidden");
   vqlInput.focus();
   paintTabThumb();
@@ -546,15 +529,10 @@ function closeHistory() {
   historyBtn.setAttribute("aria-expanded", "false");
 }
 
-function closeAllPopovers() {
-  closeHistory();
-}
-
-// The pill in the editor's corner drops the list under itself. It sits inside
-// the editor's wrapper, so autocomplete doesn't close by itself; close it here.
+// The History pill drops the list under itself, and closes autocomplete on the way.
 historyBtn.addEventListener("click", () => {
   const wasHidden = historyPopover.classList.contains("hidden");
-  closeAllPopovers();
+  closeHistory();
   hideAc();
   if (wasHidden) {
     historyPopover.classList.remove("hidden");
@@ -1091,7 +1069,8 @@ async function runQuery() {
   const userLimit = rowCap != null ? rowCap + skipRows : null;
   const baseQuery = stripVqlTrailingPaging(raw);
   // Its metadata decides Names/Labels and what can be edited.
-  const runTarget = modelObject(vqlShape(baseQuery).target);
+  const shape = vqlShape(baseQuery);
+  const runTarget = modelObject(shape.target);
   if (runTarget && !runTarget.checkedAt) await Promise.race([touchModelObjects([runTarget.name]), sleep(2500)]);
   else if (runTarget) touchModelObjects([runTarget.name]);
   const startTime = performance.now();
@@ -1101,7 +1080,6 @@ async function runQuery() {
 
   // The Names/Labels switch acts on the query as it goes out: eligible fields
   // are wrapped in TONAME() or TOLABEL(). The editor keeps what was typed.
-  const shape = vqlShape(baseQuery);
   const isShow = !!shape.show;
   const rewrite = rewriteForValueMode(baseQuery);
   let sentQuery = rewrite.query;
@@ -1454,7 +1432,7 @@ function rewriteForValueMode(query) {
     : (!isDocs && /__[a-z]+$/.test(target) ? "TOLABEL" : null);
   if (!fn) return none;
 
-  const obj = state.dataModel?.objects.find((o) => o.name.toLowerCase() === target);
+  const obj = modelObject(target);
   if (fn === "TOLABEL" && obj?.dataStore === "raw") return none;
   const eligible = new Set(VALUE_SYSTEM_FIELDS[isDocs ? "documents" : "objects"]);
   for (const f of obj?.fields || []) {
@@ -1556,12 +1534,16 @@ function showError(msg) {
 }
 
 // ===================== COPY / EXPORT =====================
-copyBtn.addEventListener("click", () => {
-  if (lastResultData) {
-    navigator.clipboard.writeText(JSON.stringify(lastResultData, null, 2));
+copyBtn.addEventListener("click", async () => {
+  if (!lastResultData) return;
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(lastResultData, null, 2));
     copyBtn.textContent = "Copied!";
-    setTimeout(() => (copyBtn.textContent = "Copy JSON"), 1500);
+  } catch {
+    copyBtn.textContent = "Copy failed";
   }
+  clearTimeout(copyBtn.resetTimer);
+  copyBtn.resetTimer = setTimeout(() => (copyBtn.textContent = "Copy JSON"), 1500);
 });
 
 exportCsvBtn.addEventListener("click", () => {
@@ -1570,14 +1552,18 @@ exportCsvBtn.addEventListener("click", () => {
   const keys = resultColumns(rows);
   let csv = keys.map(csvEsc).join(",") + "\n";
   for (const row of rows) csv += keys.map((k) => csvEsc(exportText(row[k]))).join(",") + "\n";
-  const blob = new Blob([csv], { type: "text/csv" });
+  downloadBlob(new Blob([csv], { type: "text/csv" }), `vql_results_${Date.now()}.csv`);
+});
+
+// Saves a file through a temporary link.
+function downloadBlob(blob, name) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `vql_results_${Date.now()}.csv`;
+  a.download = name;
   a.click();
   URL.revokeObjectURL(url);
-});
+}
 
 // A CSV field for Vault itself (the object update body): quoted when it has
 // to be, and nothing else — the formula guard below is for spreadsheets.
@@ -1596,8 +1582,7 @@ function csvEsc(val) {
   const formulaRisk =
     /^[=+@\t\r]/.test(str) || (str.startsWith("-") && !/^-\d+(\.\d+)?$/.test(str));
   if (formulaRisk) str = `'${str}`;
-  if (/[",\r\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
-  return str;
+  return csvField(str);
 }
 
 // ===================== EXPORT EXCEL =====================
@@ -1764,14 +1749,8 @@ ${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" Co
   return zip.toBlob();
 }
 
-function downloadXlsx(rows, filename) {
-  const blob = buildXlsxBlob(rows);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename || `vql_results_${Date.now()}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(url);
+function downloadXlsx(rows) {
+  downloadBlob(buildXlsxBlob(rows), `vql_results_${Date.now()}.xlsx`);
 }
 
 exportXlsxBtn.addEventListener("click", () => {
@@ -2031,6 +2010,9 @@ async function holdSyncLease() {
   const now = Date.now();
   const cur = (await chrome.storage.local.get(key))[key];
   if (cur && cur.id !== VIEW_ID && cur.until > now) return false;
+  // Still ours for a while: renewing on every call would write storage several
+  // times a second during a refresh.
+  if (cur?.id === VIEW_ID && cur.until - now > SYNC_LEASE_MS / 2) return true;
   await chrome.storage.local.set({ [key]: { id: VIEW_ID, until: now + SYNC_LEASE_MS } });
   return true;
 }
@@ -2246,7 +2228,7 @@ async function fetchModelObject(o) {
       showQuery(`SHOW RELATIONSHIPS FROM ${o.name}`),
     ]);
     if (!fields && !rels) return { error: "Vault didn't describe it" };
-    return { fields: showFields(o.name, fields), relationships: showRelationships(rels), elsewhere: [] };
+    return { fields: showFields(fields), relationships: showRelationships(rels), elsewhere: [] };
   }
   const res = await apiCall(
     o.name === "documents" ? "/metadata/objects/documents/properties" : `/metadata/vobjects/${encodeURIComponent(o.name)}`
@@ -2254,7 +2236,7 @@ async function fetchModelObject(o) {
   if (!apiOk(res)) return { error: apiErr(res) };
   const rels = extractRelationships(res);
   const out = {
-    fields: extractFields(o.name, res),
+    fields: extractFields(res),
     relationships: rels.own,
     elsewhere: rels.elsewhere,
     // "raw" objects don't take TOLABEL(); Names/Labels skips them.
@@ -2309,6 +2291,10 @@ function applyModelObject(name, info) {
     if (info.label && !o.label) o.label = info.label;
     delete o.fetchError;
     linkInbound(o, info.elsewhere);
+    // Opening an object asks for its fill rates straight away, but on a first
+    // open its fields aren't here yet and there is nothing to measure. Ask
+    // again now that they are.
+    if (dmSelected === o.name) scheduleFieldStats(o.name);
   }
   modelChanged(o.name);
 }
@@ -2448,7 +2434,7 @@ function paintSync() {
   paintTypesSync();
 }
 
-function extractFields(objName, res) {
+function extractFields(res) {
   if (!res.success || !res.data) return [];
 
   const data = res.data;
@@ -2478,16 +2464,11 @@ function extractFields(objName, res) {
     required: f.required || f.required__v || false,
     editable: f.editable || f.editable__v || false,
     queryable: f.queryable !== undefined ? f.queryable : true,
-    helpContent: f.help_content || f.help_content__v || "",
-    maxLength: f.max_length || f.max_length__v || null,
-    objectName: objName,
-    picklist: f.picklist || f.picklist__v || null,
-    relationship: f.relationship_type || f.lookup_relationship_name || null,
   }));
 }
 
 // ---- Relationships ------------------------------------------------------------
-// The metadata loadDataModel already fetches carries every relationship: an
+// The metadata fetchModelObject already fetches carries every relationship: an
 // object's `relationships` list (name, direction, field, target object) and,
 // on documents, `relationshipName` on each object reference field. Kept as
 // { name, dir, target, field, label }: "out" is a lookup (rel.field, one
@@ -2542,7 +2523,7 @@ function showRelationships(rows) {
   }));
 }
 
-function showFields(name, rows) {
+function showFields(rows) {
   return (rows || []).map((f) => ({
     name: f.name,
     label: f.label || "",
@@ -2550,11 +2531,6 @@ function showFields(name, rows) {
     required: false,
     editable: false,
     queryable: true,
-    helpContent: "",
-    maxLength: null,
-    objectName: name,
-    picklist: null,
-    relationship: f.relationship_name || null,
   }));
 }
 
@@ -2599,7 +2575,7 @@ function relationshipTargetAnywhere(relName, dir) {
 // hold — or there is no model yet, or it was saved before relationships were
 // kept — that one object is asked about: two SHOW queries on v25.2+, its
 // metadata call before. Kept for the page's life, per vault. They feed
-// autocomplete and the MORE menu only; editing still goes by the model.
+// autocomplete and lookups only; editing still goes by the model.
 const liveObjects = new Map();      // name -> { name, label, fields, relationships } | null (no such object)
 const liveObjectsPending = new Map();
 let liveTargets = null;             // [{ name, label }] for FROM suggestions with no model
@@ -2624,7 +2600,6 @@ const PLAIN_TARGETS = new Set([
 ]);
 
 function plausibleTarget(n) {
-  if (state.dataModel?.objects.some((o) => o.name.toLowerCase() === n)) return true;
   if (liveTargets) return liveTargets.some((t) => t.name.toLowerCase() === n);
   return /__[a-z]+$/.test(n) || PLAIN_TARGETS.has(n);
 }
@@ -2648,11 +2623,11 @@ async function fetchObjectInfo(n) {
       showQuery(`SHOW FIELDS FROM ${n}`),
       showQuery(`SHOW RELATIONSHIPS FROM ${n}`),
     ]);
-    if (fields || rels) return { name: n, label: "", fields: showFields(n, fields), relationships: showRelationships(rels) };
+    if (fields || rels) return { name: n, label: "", fields: showFields(fields), relationships: showRelationships(rels) };
   }
   const res = await apiCall(n === "documents" ? "/metadata/objects/documents/properties" : `/metadata/vobjects/${encodeURIComponent(n)}`);
   if (!apiOk(res)) return null;
-  return { name: n, label: res.data?.object?.label || "", fields: extractFields(n, res), relationships: extractRelationships(res).own };
+  return { name: n, label: res.data?.object?.label || "", fields: extractFields(res), relationships: extractRelationships(res).own };
 }
 
 // Looks the objects up (once each); resolves when all have answered.
@@ -3197,7 +3172,7 @@ function highlight(text, filter) {
 }
 
 function insertSelectTemplate(objName) {
-  const obj = state.dataModel?.objects.find((o) => o.name === objName);
+  const obj = modelObject(objName);
   if (!obj || !obj.fields.length) return;
   const fieldList = obj.fields.map((f) => `    ${f.name}`).join(",\n");
   insertIntoQuery(`SELECT\n${fieldList}\nFROM ${obj.name}`, true);
@@ -3385,7 +3360,7 @@ function scheduleFieldStats(objName) {
 
 async function computeFieldStats(objName) {
   if (fieldStatsPending.has(objName)) return;
-  const obj = state.dataModel?.objects.find((o) => o.name === objName);
+  const obj = modelObject(objName);
   if (!obj || !state.sessionId) return;
 
   // Required fields already rank above everything else, so measuring them is
@@ -3569,8 +3544,6 @@ function fieldItem(f, insert) {
   return { type: "field", name: insert || f.name, label: f.label, detail: f.type, required: f.required, insert: insert || f.name };
 }
 
-// The object the caret is writing about: the subquery's relationship target
-// when inside one, else the top-level FROM target.
 // The object the caret is writing about: the subquery's relationship target
 // when inside one, else the top-level FROM target. `want` collects the names
 // that have to be looked up first; the list is drawn again once they answer.
@@ -4007,9 +3980,7 @@ function explainLockedCell(td) {
 function getEditableFields(objectName) {
   // If we have data model, check for explicitly non-editable fields to exclude
   if (state.dataModel && objectName) {
-    const obj = state.dataModel.objects.find(
-      (o) => o.name.toLowerCase() === objectName.toLowerCase()
-    );
+    const obj = modelObject(objectName);
     if (obj?.kind === "target") return new Set();
     if (obj) {
       const editable = new Set();
@@ -4110,7 +4081,7 @@ function paintPanelPage() {
 
   html += "</tbody></table>";
 
-  // getEditableFields never returns empty, so id in the SELECT is the only gate.
+  // Which cells edit is decided per cell; the hint only needs id in the SELECT.
   if (hasId) {
     html += '<div class="edit-hint">Click editable cells to modify values</div>';
   } else {
@@ -4289,62 +4260,64 @@ saveBtn.addEventListener("click", async () => {
   const isDoc = queryObjectName.toLowerCase() === "documents";
   const errors = [];
 
-  for (const [rowIdxStr, edits] of Object.entries(editsByRow)) {
-    const ri = parseInt(rowIdxStr);
-    const row = queryRows[ri];
-    if (!row) { errors.push(`Row ${ri}: not found in data`); continue; }
+  try {
+    for (const [rowIdxStr, edits] of Object.entries(editsByRow)) {
+      const ri = parseInt(rowIdxStr);
+      const row = queryRows[ri];
+      if (!row) { errors.push(`Row ${ri}: not found in data`); continue; }
 
-    const recordId = row.id;
-    if (!recordId) { errors.push(`Row ${ri}: no id field — include id in your SELECT`); continue; }
+      const recordId = row.id;
+      if (!recordId) { errors.push(`Row ${ri}: no id field — include id in your SELECT`); continue; }
 
-    const tr = resultsContainer.querySelector(`tr[data-row="${ri}"]`);
-    if (tr) tr.classList.add("saving");
+      const tr = resultsContainer.querySelector(`tr[data-row="${ri}"]`);
+      if (tr) tr.classList.add("saving");
 
-    // Documents: Update Single Document, form-encoded. Objects: Update Object
-    // Records, which takes CSV (or JSON) and answers per record — the batch
-    // can say SUCCESS while the one record in it failed.
-    let result;
-    if (isDoc) {
-      const body = edits
-        .map((e) => `${encodeURIComponent(e.field)}=${encodeURIComponent(e.newVal)}`)
-        .join("&");
-      result = await apiCall(`/objects/documents/${recordId}`, "PUT", body);
-    } else {
-      const csv = `${["id", ...edits.map((e) => e.field)].map(csvField).join(",")}\n` +
-        `${[recordId, ...edits.map((e) => e.newVal)].map(csvField).join(",")}\n`;
-      result = await apiCall(`/vobjects/${queryObjectName}`, "PUT", csv, null, "text/csv");
-      const rec = result.data?.data?.[0];
-      if (result.success && rec && rec.responseStatus === "FAILURE") {
-        result = { success: true, data: { responseStatus: "FAILURE", errors: rec.errors || [{ message: "Vault refused the update" }] } };
+      // Documents: Update Single Document, form-encoded. Objects: Update Object
+      // Records, which takes CSV (or JSON) and answers per record — the batch
+      // can say SUCCESS while the one record in it failed.
+      let result;
+      if (isDoc) {
+        const body = edits
+          .map((e) => `${encodeURIComponent(e.field)}=${encodeURIComponent(e.newVal)}`)
+          .join("&");
+        result = await apiCall(`/objects/documents/${recordId}`, "PUT", body);
+      } else {
+        const csv = `${["id", ...edits.map((e) => e.field)].map(csvField).join(",")}\n` +
+          `${[recordId, ...edits.map((e) => e.newVal)].map(csvField).join(",")}\n`;
+        result = await apiCall(`/vobjects/${queryObjectName}`, "PUT", csv, null, "text/csv");
+        const rec = result.data?.data?.[0];
+        if (result.success && rec && rec.responseStatus === "FAILURE") {
+          result = { success: true, data: { responseStatus: "FAILURE", errors: rec.errors || [{ message: "Vault refused the update" }] } };
+        }
+      }
+
+      if (tr) tr.classList.remove("saving");
+
+      if (apiOk(result)) {
+        for (const e of edits) {
+          queryRows[ri][e.field] = e.newVal;
+          delete pendingEdits[`${e.rowIdx}:${e.field}`];
+          const td = resultsContainer.querySelector(`td[data-row="${ri}"][data-field="${e.field}"]`);
+          if (td) td.classList.remove("dirty");
+        }
+        if (tr) {
+          tr.classList.add("save-ok");
+          setTimeout(() => tr.classList.remove("save-ok"), 1500);
+        }
+      } else {
+        const errMsg = result.data?.errors?.map((e) => e.message).join(", ") || result.error || "Unknown error";
+        errors.push(`Row ${ri} (id: ${recordId}): ${errMsg}`);
+        if (tr) {
+          tr.classList.add("save-err");
+          tr.title = errMsg;
+          setTimeout(() => { tr.classList.remove("save-err"); tr.title = ""; }, 5000);
+        }
       }
     }
-
-    if (tr) tr.classList.remove("saving");
-
-    if (result.success && result.data?.responseStatus !== "FAILURE") {
-      for (const e of edits) {
-        queryRows[ri][e.field] = e.newVal;
-        delete pendingEdits[`${e.rowIdx}:${e.field}`];
-        const td = resultsContainer.querySelector(`td[data-row="${ri}"][data-field="${e.field}"]`);
-        if (td) td.classList.remove("dirty");
-      }
-      if (tr) {
-        tr.classList.add("save-ok");
-        setTimeout(() => tr.classList.remove("save-ok"), 1500);
-      }
-    } else {
-      const errMsg = result.data?.errors?.map((e) => e.message).join(", ") || result.error || "Unknown error";
-      errors.push(`Row ${ri} (id: ${recordId}): ${errMsg}`);
-      if (tr) {
-        tr.classList.add("save-err");
-        tr.title = errMsg;
-        setTimeout(() => { tr.classList.remove("save-err"); tr.title = ""; }, 5000);
-      }
-    }
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = "Save Changes";
   }
-
-  saveBtn.disabled = false;
-  saveBtn.innerHTML = "Save Changes";
   updateSaveBar();
   if (WINDOW_MODE) renderInspector();
 
@@ -4363,7 +4336,8 @@ function showSaveError(msg) {
   }
   errDiv.textContent = msg;
   errDiv.style.marginTop = "8px";
-  setTimeout(() => errDiv.remove(), 8000);
+  clearTimeout(errDiv.removeTimer);
+  errDiv.removeTimer = setTimeout(() => errDiv.remove(), 8000);
 }
 
 // ===================== DOC TYPES =====================
@@ -4653,7 +4627,7 @@ function paintTypesSync() {
   else if (sync.typesError) text = `couldn't check: ${sync.typesError}`;
   else if (counted.length) {
     text = `counted ${ageText(Math.min(...counted.map((t) => t.countedAt)))}` + (failed.length ? ` · ${failed.length} failed` : "");
-  } else if (sync.typesListing) text = "checking…";
+  }
   dtSync.textContent = text;
   dtSync.classList.toggle("error", !!sync.typesError || (!sync.counting && failed.length > 0));
   dtSync.title =
@@ -4724,8 +4698,8 @@ function slimDocType(t) {
   };
 }
 
-// Returns the error when the save fails, so the caller can say so; the types
-// stay loaded in this view either way.
+// Returns the error when the save fails; the types stay loaded in this view
+// either way.
 async function saveDocTypes() {
   const domain = state.domain;
   if (!domain || !docTypes.length) return null;
@@ -4894,21 +4868,12 @@ function splitByLayout(props) {
   return { onLayout, off, detected: true };
 }
 
-// Not fieldRowHtml: that is the data model's row builder, and a second
-// top-level function of the same name silently replaces the first everywhere.
-// The layout list: plain fields stay quiet, picklists stand out with a preview
-// of their values and a count; clicking one opens its values under the row.
-function dtTypeLabel(p) {
-  const t = String(p.type || "").toLowerCase();
-  return t === "objectreference" ? "object" : t;
-}
+const DT_FILTERS = { all: "All Fields", user: "User Fields" };
 
 // Who fills a field, read from its definition alone: Vault (a system field
 // the user can't edit, a formula or lookup, or read-only for this user),
 // Vault first (a default value people may change), or people. Read-only can
 // also be this user's access, so the tooltip says why.
-const DT_FILTERS = { all: "All Fields", user: "User Fields" };
-
 function dtFillTag(p) {
   const t = String(p.type || "");
   if (/^(formula|lookup)$/i.test(t)) return { tag: "system", why: `${t.charAt(0).toUpperCase()}${t.slice(1).toLowerCase()} Field` };
@@ -4919,12 +4884,16 @@ function dtFillTag(p) {
   return { tag: "people", why: p.systemAttribute ? "Vault Standard Field" : "Vault Custom Field" };
 }
 
+// Not fieldRowHtml: that is the data model's row builder, and a second
+// top-level function of the same name silently replaces the first everywhere.
+// The layout list: plain fields stay quiet, picklists stand out with a preview
+// of their values and a count; clicking one opens its values under the row.
 function dtFieldRowHtml(p) {
   const name = esc(p.name || "");
   const req = p.required === true ? '<span class="dt-field-req" aria-label="required">*</span>' : "";
   const fill = dtFillTag(p);
   const group = fill.tag === "system" ? "system" : "user";
-  const tip = [p.name, dtTypeLabel(p), p.required ? "required" : "", p.editable === false ? "read-only" : "",
+  const tip = [p.name, wbTypeLabel(p.type), p.required ? "required" : "", p.editable === false ? "read-only" : "",
     p.repeating ? "several values" : "", p.hidden ? "hidden" : "", p.scope || "", fill.why].filter(Boolean).join(" · ");
   if (isValueListProp(p)) {
     const ref = refObjectOf(p);
@@ -4953,8 +4922,8 @@ function dtFieldRowHtml(p) {
 // on screen is loaded in the background, a few at a time, so its row can show
 // a count and a preview before it is opened.
 const picklistNames = new Map();     // document field -> picklist name, or null
-const picklistValueSets = new Map(); // picklist -> Promise of { values, controlling } or null
-const dtPickResults = new Map();     // "type|field" -> { values, source, controlling }
+const picklistValueSets = new Map(); // picklist -> Promise of { values } or null
+const dtPickResults = new Map();     // "type|field" -> { values, source }
 const DT_VALUES_FILTER_AT = 12;
 const DT_PICK_CONCURRENCY = 3;
 
@@ -5067,8 +5036,8 @@ async function loadPicklistValues(prop) {
   if (ref) {
     const set = await loadObjectRecords(ref);
     return set
-      ? { values: set.values, total: set.total, records: true, source: `object ${ref}`, controlling: null }
-      : { values: null, records: true, source: "", controlling: null };
+      ? { values: set.values, total: set.total, records: true, source: `object ${ref}` }
+      : { values: null, records: true, source: "" };
   }
   const fromType = Array.isArray(prop.entryNames)
     ? prop.entryNames.map((n, i) => ({ name: n, label: prop.entryLabels?.[i] ?? "" }))
@@ -5083,17 +5052,16 @@ async function loadPicklistValues(prop) {
           apiOk(res) && Array.isArray(res.data?.picklistValues)
             ? {
                 values: res.data.picklistValues.map((v) => ({ name: v.name, label: v.label || "" })),
-                controlling: res.data.controllingPicklistName || null,
               }
             : null
         )
       );
     }
     const set = await picklistValueSets.get(pick);
-    if (set) return { values: set.values, source: `picklist ${pick}`, controlling: set.controlling };
+    if (set) return { values: set.values, source: `picklist ${pick}` };
   }
-  if (fromType) return { values: fromType, source: "this type's metadata", controlling: null };
-  return { values: null, source: "", controlling: null };
+  if (fromType) return { values: fromType, source: "this type's metadata" };
+  return { values: null, source: "" };
 }
 
 function dtPickKey(type, field) {
@@ -5235,8 +5203,6 @@ function showDocTypeFields(type) {
   }
   const props = type.properties;
   const { onLayout, off, detected } = splitByLayout(props);
-  type._layout = onLayout;
-  type._layoutDetected = detected;
 
   if (!props.length) {
     dtFields.innerHTML = '<div class="dm-empty">This type declares no fields.</div>';
@@ -5545,11 +5511,13 @@ dtFields.addEventListener("click", async (e) => {
     }
     // The label says it was copied for a moment, then comes back.
     const label = value.querySelector(".dt-value-label");
-    const was = label.textContent;
+    label.dataset.was ??= label.textContent;
     label.textContent = "Copied";
     value.classList.add("copied");
-    setTimeout(() => {
-      label.textContent = was;
+    clearTimeout(value.copiedTimer);
+    value.copiedTimer = setTimeout(() => {
+      label.textContent = label.dataset.was;
+      delete label.dataset.was;
       value.classList.remove("copied");
     }, 1200);
     return;
@@ -5678,7 +5646,6 @@ if (!WINDOW_MODE) {
   pagePrev.addEventListener("click", () => turnResultsPage(-1));
   pageNext.addEventListener("click", () => turnResultsPage(1));
 }
-const inspEmpty = $("#insp-empty");
 const inspBody = $("#insp-body");
 const inspTitle = $("#insp-title");
 const inspFields = $("#insp-fields");
@@ -5902,12 +5869,14 @@ function wireSplit() {
     const move = (ev) => setEditorHeight(startH + ev.clientY - startY);
     const done = () => {
       splitHandle.removeEventListener("pointermove", move);
+      splitHandle.removeEventListener("pointerup", done);
+      splitHandle.removeEventListener("pointercancel", done);
       document.body.classList.remove("resizing");
       saveEditorHeight();
     };
     splitHandle.addEventListener("pointermove", move);
-    splitHandle.addEventListener("pointerup", done, { once: true });
-    splitHandle.addEventListener("pointercancel", done, { once: true });
+    splitHandle.addEventListener("pointerup", done);
+    splitHandle.addEventListener("pointercancel", done);
   });
   // Double-click hands the height back to the query.
   splitHandle.addEventListener("dblclick", () => {
@@ -6161,10 +6130,9 @@ function vqlShape(q) {
   const shape = {
     show: null,          // TARGETS | FIELDS | RELATIONSHIPS
     target: null,        // the top-level FROM target, lower case
-    option: null,        // ALLVERSIONS | LATESTVERSION | RECENT | FAVORITES
+    option: null,        // ALLVERSIONS | RECENT | FAVORITES
     targetEnd: -1,       // offset just past the target word
-    fromAt: -1,
-    subqueries: [],      // { start, end, rel, inSelect }
+    subqueries: [],      // { start, end, rel }
     lookups: new Set(),  // relationship names used as rel.field
     nested: false,       // a subquery inside a subquery
     select: [],          // top-level SELECT items, trimmed and lower case
@@ -6182,7 +6150,6 @@ function vqlShape(q) {
 
   for (let i = 0; i < toks.length; i++) {
     if (toks[i].depth !== 0 || !/^from$/i.test(toks[i].t)) continue;
-    shape.fromAt = toks[i].at;
     let j = i + 1;
     if (VQL_TARGET_OPTION_RE.test(toks[j]?.t || "")) {
       shape.option = toks[j].t.toUpperCase();
@@ -6200,7 +6167,7 @@ function vqlShape(q) {
   for (let i = 0; i < toks.length; i++) {
     if (toks[i].t !== "(" || !/^select$/i.test(toks[i + 1]?.t || "")) continue;
     const d = toks[i].depth;
-    const sub = { start: toks[i].at, end: q.length, rel: null, inSelect: shape.fromAt < 0 || toks[i].at < shape.fromAt };
+    const sub = { start: toks[i].at, end: q.length, rel: null };
     for (let j = i + 2; j < toks.length; j++) {
       const x = toks[j];
       if (x.t === ")" && x.depth === d) {
@@ -6305,8 +6272,7 @@ function activeTab() {
 function derivedTabLabel(t) {
   const m = (t.query || "").match(/\bFROM\s+(\w+)/i);
   if (!m) return "New query";
-  const obj = state.dataModel?.objects.find((o) => o.name.toLowerCase() === m[1].toLowerCase());
-  return obj?.label || m[1];
+  return modelObject(m[1])?.label || m[1];
 }
 
 function tabLabel(t) {
@@ -6738,7 +6704,6 @@ function renderInspector() {
   const row = ri != null ? queryRows[ri] : null;
   // The drawer is only there while a row is picked.
   vqlPanel.classList.toggle("row-open", !!row);
-  inspEmpty.classList.toggle("hidden", !!row);
   inspBody.classList.toggle("hidden", !row);
   if (!row) return;
 

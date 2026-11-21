@@ -11,8 +11,12 @@ chrome.action.onClicked.addListener(async (tab) => {
     await chrome.tabs.sendMessage(tab.id, { action: "toggleOverlay" });
   } catch (e) {
     // Content script may not be loaded yet (e.g. after install). Inject and retry.
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
-    await chrome.tabs.sendMessage(tab.id, { action: "toggleOverlay" });
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+      await chrome.tabs.sendMessage(tab.id, { action: "toggleOverlay" });
+    } catch (err) {
+      // A page that can't be scripted (an error page, say): nothing to open.
+    }
   }
 });
 
@@ -132,8 +136,16 @@ async function makeVaultApiCall(domain, sessionId, endpoint, method = "GET", bod
       }
     }
     const response = await fetch(url, options);
-    const data = await response.json();
-    return { success: true, data, burst: burstOf(response) };
+    const burst = burstOf(response);
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      // Not JSON: an error page from a proxy or the vault's front door. The
+      // status says more than the parse error would.
+      return { success: false, error: `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`, burst };
+    }
+    return { success: true, data, burst };
   } catch (err) {
     return { success: false, error: err.message };
   }

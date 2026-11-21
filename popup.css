@@ -81,7 +81,6 @@
   /* Borders / lines */
   --border: #dad6c6;
   --border-strong: #cfcbbc;
-  --border-focus: var(--border-strong);
 
   /* Field surfaces (parchment-white over the khaki bg) */
   --field-bg: #fdfcf8;
@@ -191,13 +190,6 @@ body {
    DOM but are never part of its layout. */
 body:not(.mode-window) .window-only { display: none !important; }
 
-.topbar-sep {
-  width: 1px;
-  height: 14px;
-  background: var(--border-strong);
-  margin: 0 2px;
-  flex-shrink: 0;
-}
 
 /* Status pill — hidden entirely once connected in the overlay: the green tick on
    the Models tab and the chip already say everything. Fault states still show,
@@ -709,50 +701,6 @@ body.mode-window .find-input { height: 25px; font-size: 11.5px; }
 }
 
 .model-chip:active { transform: translateY(1px); }
-
-.model-chip-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--ink);
-  flex-shrink: 0;
-}
-
-.model-chip.loading {
-  background-color: var(--white);
-  border-color: var(--accent);
-  color: var(--text);
-  cursor: default;
-}
-
-.model-chip.loading .model-chip-dot { background: var(--accent); }
-
-.model-chip-check {
-  display: none;
-  font-size: 10px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-/* Loaded reads as a quiet confirmation, not a call to action: translucent green
-   so it sits on either the parchment or the white card. */
-.model-chip.loaded {
-  background-color: rgba(47, 125, 79, .14);
-  border-color: rgba(47, 125, 79, .35);
-  color: var(--green);
-}
-
-.model-chip.loaded .model-chip-dot { display: none; }
-.model-chip.loaded .model-chip-check { display: inline; }
-.model-chip.loaded:hover { background-color: rgba(47, 125, 79, .22); }
-
-.model-chip.failed {
-  background-color: var(--red-bg);
-  border-color: var(--red);
-  color: var(--red);
-}
-
-.model-chip.failed .model-chip-dot { background: var(--red); }
 
 textarea {
   width: 100%;
@@ -1833,12 +1781,6 @@ body.mode-window .dt-sort-opt { height: 22px; padding: 0 11px; font-size: 12px; 
 }
 
 
-.dt-children-loading {
-  padding: 6px 10px 6px 30px;
-  font-size: 10px;
-  color: var(--text-hint);
-}
-
 /* Breadcrumb */
 .dt-breadcrumb {
   padding: 8px 12px;
@@ -2186,8 +2128,7 @@ body.mode-window .shell {
   padding: 0;
 }
 
-body.mode-window #vql-panel,
-body.mode-window #connection-panel { grid-area: main; }
+body.mode-window #vql-panel { grid-area: main; }
 
 /* ---- The rail: the top bar's jobs, as one column of tools ---- */
 /* Query and Doc Types choose what fills the main column (the shown one on a
@@ -2211,8 +2152,7 @@ body.mode-window .topbar {
 
 body.mode-window .logo { width: 28px; height: 28px; margin-bottom: 10px; }
 
-body.mode-window .topbar-title,
-body.mode-window .topbar-sep { display: none !important; }
+body.mode-window .topbar-title { display: none !important; }
 
 body.mode-window .tabs {
   flex-direction: column;
@@ -2321,7 +2261,6 @@ body.mode-window .statusbar {
 .status-left { display: flex; min-width: 0; }
 .status-spacer { flex: 1; }
 .status-api:empty { display: none; }
-.status-right { display: flex; align-items: center; }
 
 body.mode-window .statusbar .topbar-conn { display: flex; min-width: 0; }
 
@@ -2376,17 +2315,7 @@ body.mode-window .statusbar .topbar-user::before {
   color: var(--text-faint);
 }
 
-body.mode-window .model-chip .model-chip-dot { display: none; }
-body.mode-window .model-chip:not(.loaded):not(.loading):not(.failed):hover { background-color: #d6a64a; }
-body.mode-window .model-chip.loading { box-shadow: inset 0 0 0 1px var(--accent); }
-
-body.mode-window .model-chip.loaded {
-  background-color: var(--green-bg);
-  color: var(--green-ink);
-}
-
-body.mode-window .model-chip.loaded:hover { background-color: #cfe3d4; }
-body.mode-window .model-chip.failed { box-shadow: inset 0 0 0 1px var(--red); }
+body.mode-window .model-chip:hover { background-color: #d6a64a; }
 
 /* The rail's History panel stands in for the toolbar pill here. */
 body.mode-window .history-wrap { display: none; }
