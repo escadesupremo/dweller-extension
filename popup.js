@@ -3351,7 +3351,7 @@ function renderDataModelTree(filter) {
     dmInsertAll.textContent = `Insert all ${obj.fields.length.toLocaleString()} fields`;
     dmInsertAll.title = `Replace the query with SELECT of every field FROM ${obj.name}`;
     dmInsertAll.classList.toggle("hidden", !obj.fields.length);
-    dmShowing.textContent = hasFieldStats(obj.name) ? "Most-filled first" : "";
+    dmShowing.textContent = "";
   } else {
     html = sortedRelationships(obj)
       .filter((r) => r.dir === dmView)
