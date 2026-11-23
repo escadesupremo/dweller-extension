@@ -190,6 +190,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // discovery set travels with them.
   if (Array.isArray(saved.savedQueries)) savedQueries = saved.savedQueries;
   renderSaved();
+  initRecordOffer();
   // Per-vault data loads once autoConnect knows the domain; caches from older
   // versions are moved to per-vault keys by migrateVaultCaches().
   if (WINDOW_MODE) initWorkbench(saved);
@@ -376,6 +377,7 @@ async function autoConnect(domain) {
   showUserInfo(userResult.data);
   showVqlPanel();
   loadExportAccess();
+  updateRecordOffer();
 
   // This vault's saved data model and document types show at once; then the
   // model checks itself, and the types do when their tab is open.
@@ -2072,6 +2074,84 @@ function wireSavedList(container) {
 }
 wireSavedList(savedList);
 wireSavedList(savedRailList);
+
+// ===================== QUERY THIS RECORD =====================
+// Overlay only: content.js reads the record from the Vault page URL and posts
+// it here. We offer a one-click query for it; the record id is sanitised before
+// it goes anywhere near a query.
+let pageRecord = null;
+let recordOfferDismissedId = null;
+
+const RECORD_DOC_FIELDS = [
+  "id", "name__v", "type__v", "subtype__v", "classification__v", "lifecycle__v",
+  "status__v", "document_number__v", "major_version_number__v",
+  "minor_version_number__v", "version_modified_date__v",
+];
+
+function validRecord(rec) {
+  if (!rec) return false;
+  if (rec.kind === "document") return /^\d+$/.test(rec.id || "");
+  if (rec.kind === "object") {
+    return /^[a-z0-9_]+$/i.test(rec.object || "") && /^[a-z0-9]+$/i.test(rec.id || "");
+  }
+  return false;
+}
+
+function recordOfferId(rec) {
+  return rec ? `${rec.kind}:${rec.object || ""}:${rec.id}` : null;
+}
+
+function buildRecordQuery(rec) {
+  if (rec.kind === "document") {
+    return `SELECT ${RECORD_DOC_FIELDS.join(", ")}\nFROM documents\nWHERE id = ${rec.id}`;
+  }
+  // The object's own fields if the data model holds them, else a safe minimum.
+  let fields = ["id", "name__v"];
+  const obj = modelObject(rec.object);
+  if (obj?.fields?.length) {
+    const names = obj.fields
+      .filter((f) => f.queryable !== false && /^[a-z_][a-z0-9_]*$/i.test(f.name || "") && f.name !== "id")
+      .map((f) => f.name);
+    if (names.length) fields = ["id", ...names];
+  }
+  return `SELECT ${fields.join(", ")}\nFROM ${rec.object}\nWHERE id = '${rec.id}'`;
+}
+
+function updateRecordOffer() {
+  const offer = document.getElementById("record-offer");
+  if (!offer) return;
+  const show = !WINDOW_MODE && pageRecord && state.sessionId
+    && recordOfferId(pageRecord) !== recordOfferDismissedId;
+  if (!show) { offer.classList.add("hidden"); return; }
+  const label = pageRecord.label
+    || (pageRecord.kind === "document" ? `Document ${pageRecord.id}` : `${pageRecord.object} record`);
+  document.getElementById("ro-name").textContent = label;
+  offer.classList.remove("hidden");
+}
+
+function queryPageRecord() {
+  if (!pageRecord) return;
+  activatePane("query");
+  setQueryText(buildRecordQuery(pageRecord));
+  document.getElementById("record-offer")?.classList.add("hidden");
+  runQuery();
+}
+
+function initRecordOffer() {
+  if (WINDOW_MODE) return;          // the full window has no "current page"
+  window.addEventListener("message", (e) => {
+    if (e.source !== window.parent || e.data?.type !== "dweller-record") return;
+    pageRecord = validRecord(e.data.record) ? e.data.record : null;
+    updateRecordOffer();
+  });
+  document.getElementById("ro-go")?.addEventListener("click", queryPageRecord);
+  document.getElementById("ro-dismiss")?.addEventListener("click", () => {
+    recordOfferDismissedId = recordOfferId(pageRecord);
+    document.getElementById("record-offer")?.classList.add("hidden");
+  });
+  // Now that we're listening, ask content.js for the current record.
+  window.parent.postMessage({ type: "dweller-ready" }, "*");
+}
 
 // ===================== DATA MODEL =====================
 // ---- Loading by itself ---------------------------------------------------------
@@ -4894,6 +4974,151 @@ function clearDocTypes() {
   paintSync();
 }
 
+// ---- Drill a type's count into subtypes and classifications ----------------
+// Vault nests documents as type → subtype → classification. The type list shows
+// type totals; expanding a row fetches the level below (structure from metadata,
+// counts one filtered query each, since VQL has no GROUP BY) and caches it for
+// the session. Nothing here runs until a row is opened.
+const DT_CARET =
+  '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+const dtExpanded = new Set();     // type names opened
+const dtSubExpanded = new Set();  // `${type}|${sub}` opened
+const dtDrillCount = new Map();   // node id -> number
+const dtDrillErr = new Map();     // node id -> error string
+const dtDrillPending = new Set(); // node ids being counted
+const dtClasses = new Map();      // `${type}|${sub}` -> { state, error, list:[{name,label,value}] }
+
+const subId = (type, sub) => `${type}|${sub}`;
+const classId = (type, sub, cls) => `${type}|${sub}|${cls}`;
+
+function drillCountCell(id) {
+  if (dtDrillErr.has(id)) return '<span class="dt-type-count failed" title="count failed">!</span>';
+  if (dtDrillCount.has(id)) {
+    const n = dtDrillCount.get(id);
+    return `<span class="dt-type-count counted dt-drill-count t${countTier(n)}">${esc(compactCount(n))}</span>`;
+  }
+  return '<span class="dt-type-count dt-drill-count loading">…</span>';
+}
+
+function renderDrillChildren(t) {
+  const subs = t.subtypes || [];
+  if (!t.checkedAt && !subs.length) return '<div class="dt-children"><div class="dt-drill-empty">Loading subtypes…</div></div>';
+  if (!subs.length) return '<div class="dt-children"><div class="dt-drill-empty">No subtypes</div></div>';
+  let h = '<div class="dt-children">';
+  for (const s of subs) {
+    const sk = subId(t.name, s.name);
+    const open = dtSubExpanded.has(sk);
+    const cls = dtClasses.get(sk);
+    const canTwist = !cls || cls.state === "loading" || (cls.list && cls.list.length > 0) || open;
+    h += `<div class="dt-sub" data-sub="${esc(s.name)}">`;
+    h += `<div class="dt-sub-row">`;
+    h += canTwist ? `<span class="dt-twist${open ? " open" : ""}">${DT_CARET}</span>` : '<span class="dt-twist leaf"></span>';
+    h += `<span class="dt-sub-label">${esc(s.label || s.name)}</span><span class="dt-tier">sub</span>`;
+    h += drillCountCell(sk);
+    h += `</div>`;
+    if (open) {
+      h += '<div class="dt-subchildren">';
+      if (!cls || cls.state === "loading") h += '<div class="dt-drill-empty">Loading classifications…</div>';
+      else if (cls.state === "error") h += `<div class="dt-drill-empty">Couldn't load: ${esc(cls.error)}</div>`;
+      else if (!cls.list.length) h += '<div class="dt-drill-empty">No classifications</div>';
+      else for (const c of cls.list) {
+        const ck = classId(t.name, s.name, c.name);
+        h += `<div class="dt-class-row"><span class="dt-twist leaf"></span>` +
+          `<span class="dt-sub-label">${esc(c.label || c.name)}</span><span class="dt-tier">class</span>${drillCountCell(ck)}</div>`;
+      }
+      h += "</div>";
+    }
+    h += "</div>";
+  }
+  return h + "</div>";
+}
+
+// One filtered query per node, read from responseDetails.total, a few at a time.
+async function drillCountBatch(items) {
+  for (let i = 0; i < items.length; i += DT_BATCH) {
+    const batch = items.slice(i, i + DT_BATCH).filter((it) => !dtDrillPending.has(it.id));
+    if (!batch.length) continue;
+    batch.forEach((it) => dtDrillPending.add(it.id));
+    await Promise.all(batch.map(async (it) => {
+      const q = `SELECT id FROM documents WHERE ${it.where.join(" AND ")} PAGESIZE 1`;
+      const res = await apiCall("/query", "POST", `q=${encodeURIComponent(q)}`);
+      if (apiOk(res)) {
+        const total = Number(res.data?.responseDetails?.total);
+        dtDrillCount.set(it.id, Number.isFinite(total) ? total : (res.data?.data || []).length);
+        dtDrillErr.delete(it.id);
+      } else {
+        dtDrillErr.set(it.id, apiErr(res));
+      }
+      dtDrillPending.delete(it.id);
+    }));
+    renderDocTypeList();
+  }
+}
+
+function countSubtypes(t) {
+  const todo = (t.subtypes || [])
+    .map((s) => ({
+      id: subId(t.name, s.name),
+      where: [`TONAME(type__v) = '${vqlStr(t.name)}'`, `TONAME(subtype__v) = '${vqlStr(s.name)}'`],
+    }))
+    .filter((it) => !dtDrillCount.has(it.id));
+  if (todo.length) drillCountBatch(todo);
+}
+
+async function loadClasses(t, sub) {
+  const key = subId(t.name, sub.name);
+  const cur = dtClasses.get(key);
+  if (cur && (cur.state === "loading" || cur.state === "done")) return;
+  const path = vaultPath(sub.value || sub.link);
+  if (!path) { dtClasses.set(key, { state: "done", list: [] }); return; }
+  dtClasses.set(key, { state: "loading", list: [] });
+  renderDocTypeList();
+  const res = await apiCall(path);
+  if (apiOk(res)) {
+    dtClasses.set(key, {
+      state: "done",
+      list: (res.data?.classifications || []).map((c) => ({ name: c.name, label: c.label, value: c.value })),
+    });
+  } else {
+    dtClasses.set(key, { state: "error", error: apiErr(res), list: [] });
+  }
+  renderDocTypeList();
+}
+
+function countClasses(t, sub) {
+  const list = dtClasses.get(subId(t.name, sub.name))?.list || [];
+  const todo = list
+    .map((c) => ({
+      id: classId(t.name, sub.name, c.name),
+      where: [
+        `TONAME(type__v) = '${vqlStr(t.name)}'`,
+        `TONAME(subtype__v) = '${vqlStr(sub.name)}'`,
+        `TONAME(classification__v) = '${vqlStr(c.name)}'`,
+      ],
+    }))
+    .filter((it) => !dtDrillCount.has(it.id));
+  if (todo.length) drillCountBatch(todo);
+}
+
+async function toggleTypeDrill(t) {
+  if (dtExpanded.has(t.name)) { dtExpanded.delete(t.name); renderDocTypeList(); return; }
+  dtExpanded.add(t.name);
+  renderDocTypeList();
+  if (!t.checkedAt) await fetchDocType(t);   // populates t.subtypes
+  renderDocTypeList();
+  countSubtypes(t);
+}
+
+async function toggleSubDrill(t, sub) {
+  const key = subId(t.name, sub.name);
+  if (dtSubExpanded.has(key)) { dtSubExpanded.delete(key); renderDocTypeList(); return; }
+  dtSubExpanded.add(key);
+  renderDocTypeList();
+  await loadClasses(t, sub);
+  countClasses(t, sub);
+}
+
 function renderDocTypeList() {
   // Most records first once counted (types not counted go last), A-Z for ties
   // and before any count. No toggle: one fixed order.
@@ -4926,13 +5151,21 @@ function renderDocTypeList() {
       cell = `<span class="dt-type-count">${esc(fieldCount)}</span>`;
     }
 
+    // A twist shows while subtypes are unknown (optimistic) or when there are
+    // some; a type confirmed to have none loses it.
+    const canTwist = !t.checkedAt || (t.subtypes?.length > 0) || dtExpanded.has(t.name);
+    const open = dtExpanded.has(t.name);
+
     html += `<div class="dt-node" data-name="${esc(t.name)}">`;
     html += `<div class="dt-node-header${dtSelected?.name === t.name ? " selected" : ""}" title="${esc(tip)}">`;
+    html += canTwist ? `<span class="dt-twist${open ? " open" : ""}">${DT_CARET}</span>` : '<span class="dt-twist leaf"></span>';
     html += `<span class="dt-node-icon">&#128196;</span>`;
     html += `<span class="dt-node-label">${esc(t.label)}</span>`;
     if (t.docCount == null && !t.countError) html += `<span class="dt-node-sublabel">${esc(t.name)}</span>`;
     html += cell;
-    html += `</div></div>`;
+    html += `</div>`;
+    if (open) html += renderDrillChildren(t);
+    html += `</div>`;
   }
   dtTree.innerHTML = html;
 }
@@ -4964,12 +5197,24 @@ function compactCount(n) {
 }
 
 dtTree.addEventListener("click", (e) => {
-  const header = e.target.closest(".dt-node-header");
-  if (!header) return;
-  const name = header.closest(".dt-node")?.dataset.name;
-  const type = docTypes.find((t) => t.name === name);
+  const node = e.target.closest(".dt-node");
+  const type = node ? docTypes.find((t) => t.name === node.dataset.name) : null;
   if (!type) return;
 
+  const twist = e.target.closest(".dt-twist:not(.leaf)");
+  const subRowEl = e.target.closest(".dt-sub");
+  const sub = subRowEl ? (type.subtypes || []).find((s) => s.name === subRowEl.dataset.sub) : null;
+
+  // A subtype row (its caret or its body) opens its classifications.
+  if (sub && (twist || e.target.closest(".dt-sub-row"))) { toggleSubDrill(type, sub); return; }
+  // The type's caret opens its subtypes.
+  if (twist) { toggleTypeDrill(type); return; }
+  // Classification rows are display-only for now.
+  if (e.target.closest(".dt-class-row")) return;
+
+  // Otherwise the type header selects it for the fields panel (unchanged).
+  const header = e.target.closest(".dt-node-header");
+  if (!header) return;
   dtTree.querySelectorAll(".dt-node-header.selected").forEach((h) => h.classList.remove("selected"));
   header.classList.add("selected");
   dtSelected = type;

@@ -61,6 +61,43 @@
     }
   }
 
+  // ---- "Query this record": tell the panel which record this page shows ----
+  // Read straight from the Vault URL. Documents are #doc_info/{id}; standard
+  // object records carry the object and record id in the hash; Vault EDC uses
+  // an object-redirect link. The panel turns this into a one-click query.
+  function parseRecord() {
+    const hash = location.hash || "";
+    let m = hash.match(/#doc_info\/(\d+)/i);
+    if (m) return { kind: "document", id: m[1], label: pageLabel() };
+    m = hash.match(/#object\/([a-zA-Z0-9_]+)\/([a-zA-Z0-9]+)/);
+    if (m) return { kind: "object", object: m[1], id: m[2], label: pageLabel() };
+    m = hash.match(/object-redirect\?([^#]*)/i);
+    if (m) {
+      const p = new URLSearchParams(m[1]);
+      const object = p.get("object_type");
+      const id = p.get("object_id");
+      if (object && id) return { kind: "object", object, id, label: pageLabel() };
+    }
+    return null;
+  }
+
+  // Vault puts the record's name in the tab title on a record page — a good
+  // label for the offer. Kept short and treated as display text by the panel.
+  function pageLabel() {
+    const t = (document.title || "").replace(/\s*[|–—-]\s*Vault\s*$/i, "").trim();
+    return t.length > 1 && t.length <= 80 ? t : "";
+  }
+
+  function sendRecord() {
+    const iframe = document.getElementById(IFRAME_ID);
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage({ type: "dweller-record", record: parseRecord() }, "*");
+    }
+  }
+
+  // The panel re-queries on SPA navigation (the hash changes without a reload).
+  window.addEventListener("hashchange", sendRecord);
+
   function open() {
     if (!document.getElementById(WRAP_ID)) create();
   }
@@ -87,10 +124,11 @@
   // any script on the host page can post to us.
   window.addEventListener("message", (e) => {
     const type = e.data?.type;
-    if (type !== "dweller-close" && type !== "dweller-height") return;
+    if (type !== "dweller-close" && type !== "dweller-height" && type !== "dweller-ready") return;
     const iframe = document.getElementById(IFRAME_ID);
     if (!iframe || e.source !== iframe.contentWindow) return;
     if (type === "dweller-close") close();
+    else if (type === "dweller-ready") sendRecord();   // panel just initialised
     else setHeight(e.data.height);
   });
 })();

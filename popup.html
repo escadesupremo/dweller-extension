@@ -100,6 +100,17 @@
     <div id="vql-panel" class="hidden" data-active-tab="query">
       <!-- Query Tab -->
       <div id="tab-query" class="tab-content active">
+        <!-- "Query this record": shown in the overlay when the Vault page the
+             panel sits on is a document or object record. One click writes and
+             runs the query for that record; content.js supplies the record. -->
+        <div id="record-offer" class="record-offer hidden">
+          <div class="ro-text">
+            <span class="ro-k">On this page</span>
+            <span id="ro-name" class="ro-name"></span>
+          </div>
+          <button id="ro-go" class="ro-go" type="button">Query this record →</button>
+          <button id="ro-dismiss" class="ro-x" type="button" title="Dismiss" aria-label="Dismiss">&times;</button>
+        </div>
         <div class="card query-card">
           <!-- Full-window only: one editor, several saved queries. -->
           <div id="query-tabbar" class="query-tabbar window-only">
