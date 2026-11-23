@@ -3995,6 +3995,42 @@ let pendingEdits = {};
 let queryObjectName = null; // detected from the FROM clause
 let queryRows = []; // raw data rows from last query
 
+// Read-only by default. Editing is a deliberate per-session arming (re-locks on
+// reload), and every save is confirmed in a dialog that names the vault.
+let editMode = false;
+
+// A vault that doesn't look like a sandbox gets the stricter save confirmation.
+function isProductionVault() {
+  return !/sandbox|-sb(\b|[.\-])|-val(\b|[.\-])|\bdev\b|\btest\b|demo|training|-uat|preprod|-qa(\b|[.\-])/i.test(state.domain || "");
+}
+function vaultShortName() {
+  return (state.domain || "").split(".")[0];
+}
+
+const editLock = $("#edit-lock");
+function setEditMode(on) {
+  editMode = on;
+  editLock?.classList.toggle("armed", on);
+  editLock?.setAttribute("aria-pressed", String(on));
+  const label = $("#edit-lock-label");
+  if (label) label.textContent = on ? "Editing" : "Read-only";
+  if (editLock) {
+    editLock.title = on
+      ? "Editing armed — each save is confirmed. Click to lock."
+      : "Read-only — click to enable editing.";
+  }
+  document.body.classList.toggle("edit-armed", on);
+  // Locking discards any unsaved edits (they were never written).
+  if (!on && Object.keys(pendingEdits).length) {
+    pendingEdits = {};
+    updateSaveBar();
+  }
+  // Re-render so cells reflect the new mode.
+  if (WINDOW_MODE) { paintResultsView(); renderInspector(); }
+  else if (queryRows.length) paintPanelPage();
+}
+editLock?.addEventListener("click", () => setEditMode(!editMode));
+
 // The target of the query the rows came from — past ALLVERSIONS, RECENT and
 // the rest, and not fooled by a subquery's FROM coming first.
 function detectObjectFromQuery() {
@@ -4117,6 +4153,7 @@ function cellLockReason(ri, key) {
 }
 
 function cellEditable(ri, key, editable) {
+  if (!editMode) return false;   // read-only by default
   if (key === "id" || !resultKeys.includes("id") || resultMeta?.show) return false;
   if (!(editable === "all" || editable?.has(key))) return false;
   return !columnLockReason(key) && !cellLockReason(ri, key);
@@ -4193,7 +4230,9 @@ function explainLockedCell(td) {
   const ci = [...tr.children].indexOf(td) - (WINDOW_MODE ? 1 : 0);
   const key = keys[ci];
   if (!key || key === "id" || !resultKeys.includes("id") || !Number.isInteger(ri)) return;
-  const why = columnLockReason(key) || cellLockReason(ri, key);
+  let why = columnLockReason(key) || cellLockReason(ri, key);
+  // A normally-editable cell is locked only because the panel is read-only.
+  if (!why && !editMode) why = "Read-only — unlock editing (top right) to change";
   if (!why) return;
   const hint = WINDOW_MODE ? resultsHint : resultsContainer.querySelector(".edit-hint");
   if (!hint) return;
@@ -4467,8 +4506,9 @@ discardBtn.addEventListener("click", () => {
   updateSaveBar();
 });
 
-// Save changes — group edits by row, send one PUT per row
-saveBtn.addEventListener("click", async () => {
+// Save changes — group edits by row, send one PUT per row. Only ever reached
+// through the confirmation dialog (openSaveConfirm).
+async function performSave() {
   if (!state.sessionId) {
     showSaveError("Not connected.");
     return;
@@ -4556,7 +4596,61 @@ saveBtn.addEventListener("click", async () => {
   if (errors.length > 0) {
     showSaveError(errors.join("\n"));
   }
-});
+}
+
+// ---- The explicit ask before any write ----
+const scScrim = $("#save-confirm");
+const scVault = $("#sc-vault");
+const scList = $("#sc-list");
+const scType = $("#sc-type");
+const scTypeInput = $("#sc-type-input");
+const scSave = $("#sc-save");
+
+function closeSaveConfirm() {
+  scScrim.classList.add("hidden");
+}
+
+function openSaveConfirm() {
+  const edits = Object.values(pendingEdits);
+  if (!edits.length) return;
+  if (!queryObjectName) {
+    showSaveError("Could not detect object name from query. Make sure your query has a FROM clause.");
+    return;
+  }
+  scVault.textContent = state.domain || "this vault";
+  const prod = isProductionVault();
+  scVault.classList.toggle("prod", prod);
+  scList.innerHTML = edits
+    .map((e) => {
+      const row = queryRows[e.rowIdx] || {};
+      const rec = esc(row.id || `row ${e.rowIdx + 1}`);
+      const name = row.name__v ? ` · ${esc(String(row.name__v))}` : "";
+      const old = e.oldVal === null || e.oldVal === undefined || e.oldVal === "" ? "(empty)" : esc(String(e.oldVal));
+      const neu = e.newVal === null || e.newVal === undefined || e.newVal === "" ? "(empty)" : esc(String(e.newVal));
+      return `<div class="sc-chg"><div class="sc-rec">${rec}${name}</div>` +
+        `<div class="sc-fld"><b>${esc(e.field)}</b> &nbsp;<span class="sc-old">${old}</span> → <span class="sc-new">${neu}</span></div></div>`;
+    })
+    .join("");
+  const n = edits.length;
+  scSave.textContent = `Save ${n} change${n !== 1 ? "s" : ""}`;
+  // Production vaults: require typing the vault name.
+  scType.classList.toggle("hidden", !prod);
+  if (prod) { $("#sc-type-name").textContent = vaultShortName(); scTypeInput.value = ""; }
+  scSave.disabled = prod;
+  scScrim.classList.remove("hidden");
+  (prod ? scTypeInput : $("#sc-cancel")).focus();
+}
+
+if (scScrim) {
+  saveBtn.addEventListener("click", openSaveConfirm);
+  $("#sc-cancel").addEventListener("click", closeSaveConfirm);
+  scScrim.addEventListener("click", (e) => { if (e.target === scScrim) closeSaveConfirm(); });
+  scTypeInput.addEventListener("input", () => { scSave.disabled = scTypeInput.value.trim() !== vaultShortName(); });
+  scSave.addEventListener("click", () => { if (scSave.disabled) return; closeSaveConfirm(); performSave(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !scScrim.classList.contains("hidden")) closeSaveConfirm();
+  });
+}
 
 function showSaveError(msg) {
   // Show error below the save bar

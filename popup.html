@@ -237,6 +237,11 @@
               <input type="search" id="results-filter" placeholder="Filter results" aria-label="Filter results" spellcheck="false" />
             </label>
             <div class="results-actions">
+              <!-- Read-only by default; this arms editing, and re-locks on reload. -->
+              <button id="edit-lock" class="btn btn-small btn-outline edit-lock" type="button" aria-pressed="false" title="Read-only — click to enable editing">
+                <svg class="edit-lock-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span id="edit-lock-label">Read-only</span>
+              </button>
               <div class="columns-wrap window-only">
                 <button id="columns-btn" class="btn btn-small btn-outline" aria-haspopup="true" aria-expanded="false">Columns</button>
                 <div id="columns-menu" class="columns-menu hidden"></div>
@@ -251,6 +256,26 @@
             <span id="save-bar-count">0 changes</span>
             <button id="discard-btn" class="btn btn-small btn-outline">Discard</button>
             <button id="save-btn" class="btn btn-small btn-primary">Save Changes</button>
+          </div>
+
+          <!-- The explicit ask before any write: names the vault and lists every
+               change; production vaults also require typing the vault name. -->
+          <div id="save-confirm" class="sc-scrim hidden">
+            <div class="sc-modal" role="dialog" aria-modal="true" aria-labelledby="sc-title">
+              <div class="sc-head">
+                <div id="sc-title" class="sc-title">Save changes to Vault?</div>
+                <div id="sc-vault" class="sc-vault"></div>
+              </div>
+              <div id="sc-list" class="sc-list"></div>
+              <div id="sc-type" class="sc-type hidden">
+                <label for="sc-type-input">Type <b id="sc-type-name"></b> to confirm this production save</label>
+                <input id="sc-type-input" type="text" autocomplete="off" spellcheck="false" aria-label="Vault name" />
+              </div>
+              <div class="sc-foot">
+                <button id="sc-cancel" class="btn btn-small btn-outline" type="button">Cancel</button>
+                <button id="sc-save" class="btn btn-small btn-primary" type="button">Save</button>
+              </div>
+            </div>
           </div>
           <!-- Range and Prev/Next: the full window always, the panel when the
                rows run past one page. -->
