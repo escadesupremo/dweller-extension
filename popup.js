@@ -6392,20 +6392,52 @@ function reportError(msg) {
   if (text) { text.className = "export-progress-text error"; text.textContent = msg; }
 }
 
-// Lazy gating: there's no cheap API to check the Vault Configuration Report
-// permission up front, so the control shows until Vault refuses once; then it's
-// remembered per vault and hidden. (Config report is the menu's only item today,
-// so hiding the whole control is right; a permission-free snapshot later would
-// gate per item instead.)
-const exportDeniedKey = (domain) => `configReportDenied:${domain}`;
+// Gate the Export control on the Vault Configuration Report permission. There's
+// no cheap read-only API to check it, so on first connect to a vault we PROBE:
+// a configreport request with a deliberately invalid output_format, so Vault
+// runs the permission check and then rejects the bad parameter WITHOUT starting
+// a real report job (no job, no admin notification). A permission refusal means
+// no access. The result is cached per vault so the probe runs only once; a real
+// run later corrects the cache either way. (Config report is the menu's only
+// item today, so hiding the whole control is right.)
+const exportAccessKey = (domain) => `configReportAccess:${domain}`;
+
+// Called on a config-report refusal to detect a permission/access denial, as
+// opposed to a bad-parameter or other error.
+function isAccessRefusal(result) {
+  const e = result?.data?.errors?.[0];
+  const s = `${e?.type || ""} ${e?.message || ""}`;
+  return /INSUFFICIENT_ACCESS|INSUFFICIENT_PERMISSION|FORBIDDEN|NO_PERMISSION|permission|not authorized|unauthorized|access denied/i.test(s);
+}
+
+async function setExportAccess(domain, access) {
+  if (domain) await chrome.storage.local.set({ [exportAccessKey(domain)]: access });
+}
+
+async function probeExportAccess(domain) {
+  // Invalid output_format: Vault validates the permission first, then rejects
+  // the parameter, so no job is created.
+  const res = await apiCall(
+    "/objects/vault/actions/configreport",
+    "POST",
+    "component_types=Doctype&output_format=__dweller_probe__"
+  );
+  if (!res?.success) return "unknown";                 // network error: don't cache
+  if (res.data?.job_id) return "yes";                  // a job somehow started => has access
+  return isAccessRefusal(res) ? "no" : "yes";          // permission refusal => no; bad param => has access
+}
 
 async function loadExportAccess() {
   const wrap = document.getElementById("export-wrap");
   if (!wrap) return;
   if (!state.domain) { wrap.classList.remove("hidden"); return; }
-  const key = exportDeniedKey(state.domain);
-  const denied = (await chrome.storage.local.get([key]))[key];
-  wrap.classList.toggle("hidden", !!denied);
+  const key = exportAccessKey(state.domain);
+  let access = (await chrome.storage.local.get([key]))[key];
+  if (access === undefined) {
+    access = await probeExportAccess(state.domain);
+    if (access !== "unknown") await setExportAccess(state.domain, access);
+  }
+  wrap.classList.toggle("hidden", access === "no");
 }
 
 async function runConfigReport() {
@@ -6428,7 +6460,7 @@ async function runConfigReport() {
       const vaultRefused = start?.success === true;
       if (vaultRefused) {
         reportError("You don’t have access to the Vault Configuration Report on this vault — hiding it here.");
-        if (state.domain) chrome.storage.local.set({ [exportDeniedKey(state.domain)]: true });
+        setExportAccess(state.domain, "no");
         setTimeout(() => document.getElementById("export-wrap")?.classList.add("hidden"), 3500);
       } else {
         reportError(apiErr(start));   // transient (e.g. network): stays, you can retry
@@ -6476,6 +6508,7 @@ async function runConfigReport() {
     const stamp = new Date().toISOString().slice(0, 10);
     const name = `${(state.domain || "vault").split(".")[0]}-config-${stamp}.zip`;
     downloadBlob(base64ToBlob(dl.base64, dl.contentType || "application/zip"), name);
+    setExportAccess(state.domain, "yes");   // a real run confirms access
     reportDone();
   } catch (e) {
     console.error("[config report]", e);
