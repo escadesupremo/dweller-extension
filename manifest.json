@@ -51,8 +51,5 @@
         "https://*.veevavault.com/*"
       ]
     }
-  ],
-  "author": {
-    "email": "kristof.domokos.szabo@gmail.com"
-  }
+  ]
 }
