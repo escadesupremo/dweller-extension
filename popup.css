@@ -1207,6 +1207,10 @@ textarea::placeholder { color: var(--text-faint); }
    names the record. ---- */
 .record-chip { flex-shrink: 0; padding: 0 6px; }
 .record-chip.hidden { display: none; }
+/* When visible, it leads the right-hand cluster, sitting right next to History
+   (which drops its own auto-margin so the two sit together). */
+.record-chip { margin-left: auto; }
+.record-chip:not(.hidden) + .history-wrap { margin-left: 0; }
 .record-chip {
   background: var(--gold-bg);
   border-color: var(--accent);
