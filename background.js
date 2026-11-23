@@ -180,12 +180,18 @@ async function downloadVaultFile(domain, sessionId, endpoint, opts = {}) {
     });
     const burst = burstOf(response);
     const contentType = response.headers.get("Content-Type") || "";
+    const httpError = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
     if (contentType.includes("application/json")) {
       let data = null;
       try { data = await response.json(); } catch { /* leave null */ }
       const error = data?.errors?.[0]?.message
-        || (data ? "Vault returned an error instead of a file." : `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`);
+        || (data ? "Vault returned an error instead of a file." : httpError);
       return { success: false, error, data, burst };
+    }
+    // A bad status with a non-JSON body (a proxy's HTML error page) is not a
+    // file — don't base64 it and report success.
+    if (!response.ok) {
+      return { success: false, error: httpError, burst };
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     // Chunked so a large file doesn't blow the argument limit of fromCharCode.

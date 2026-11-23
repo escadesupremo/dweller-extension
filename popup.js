@@ -153,9 +153,10 @@ function closeOverlay() {
 // or they get clipped by the resized iframe.
 if (!WINDOW_MODE) {
   const shell = document.querySelector(".shell");
-  // Query #saved-popover directly: its `savedPopover` const is declared far
-  // below, so naming it here would hit the temporal dead zone at load.
-  const floatingPanels = [acDropdown, historyPopover, $("#saved-popover")];
+  // Query these by selector: their consts are declared far below, so naming
+  // them here would hit the temporal dead zone at load. #export-menu stays open
+  // and grows while a config report runs, so it must be measured too.
+  const floatingPanels = [acDropdown, historyPopover, $("#saved-popover"), $("#export-menu")];
   let lastHeight = 0;
 
   const reportHeight = () => {
@@ -5045,12 +5046,14 @@ async function drillCountBatch(items) {
     await Promise.all(batch.map(async (it) => {
       const q = `SELECT id FROM documents WHERE ${it.where.join(" AND ")} PAGESIZE 1`;
       const res = await apiCall("/query", "POST", `q=${encodeURIComponent(q)}`);
-      if (apiOk(res)) {
-        const total = Number(res.data?.responseDetails?.total);
-        dtDrillCount.set(it.id, Number.isFinite(total) ? total : (res.data?.data || []).length);
+      const total = Number(res.data?.responseDetails?.total);
+      if (apiOk(res) && Number.isFinite(total)) {
+        // The real figure comes from responseDetails.total; the page itself holds
+        // at most one row (PAGESIZE 1), so never fall back to its length.
+        dtDrillCount.set(it.id, total);
         dtDrillErr.delete(it.id);
       } else {
-        dtDrillErr.set(it.id, apiErr(res));
+        dtDrillErr.set(it.id, apiOk(res) ? "no count returned" : apiErr(res));
       }
       dtDrillPending.delete(it.id);
     }));
@@ -5108,6 +5111,7 @@ async function toggleTypeDrill(t) {
   dtExpanded.add(t.name);
   renderDocTypeList();
   if (!t.checkedAt) await fetchDocType(t);   // populates t.subtypes
+  if (!dtExpanded.has(t.name)) return;       // collapsed again while fetching
   renderDocTypeList();
   countSubtypes(t);
 }
@@ -5118,6 +5122,7 @@ async function toggleSubDrill(t, sub) {
   dtSubExpanded.add(key);
   renderDocTypeList();
   await loadClasses(t, sub);
+  if (!dtSubExpanded.has(key)) return;       // collapsed again while loading
   countClasses(t, sub);
 }
 
@@ -6320,7 +6325,8 @@ function initWorkbench(saved) {
   const limits = [...limitSelect.options].map((o) => o.value);
   limitSelect.value = limits.includes(saved.queryLimit) ? saved.queryLimit : "";
 
-  setExplorer(saved.explorerPanel === "history" ? "history" : saved.explorerPanel === "none" ? null : "model", false);
+  const ep = saved.explorerPanel;
+  setExplorer(ep === "history" ? "history" : ep === "saved" ? "saved" : ep === "none" ? null : "model", false);
   const h = Number(saved.editorHeight);
   editorHeight = Number.isFinite(h) && h > 0 ? h : null;
 
