@@ -1583,7 +1583,9 @@ function downloadBlob(blob, name) {
   a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(url);
+  // Revoke after the browser has had time to read the blob — a synchronous
+  // revoke can truncate a large download (e.g. a multi-MB config report ZIP).
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 // A CSV field for Vault itself (the object update body): quoted when it has
@@ -5163,16 +5165,20 @@ async function drillCountBatch(items) {
   }
 }
 
+// Count a set of {id, where} nodes, skipping any already counted.
+function queueCounts(items) {
+  const todo = items.filter((it) => !dtDrillCount.has(it.id));
+  if (todo.length) drillCountBatch(todo);
+}
+
 function countSubtypes(t) {
   normalizeSubtypes(t);
-  const todo = (t.subtypes || [])
+  queueCounts((t.subtypes || [])
     .filter((s) => s.name)
     .map((s) => ({
       id: subId(t.name, s.name),
       where: [`TONAME(type__v) = '${vqlStr(t.name)}'`, `TONAME(subtype__v) = '${vqlStr(s.name)}'`],
-    }))
-    .filter((it) => !dtDrillCount.has(it.id));
-  if (todo.length) drillCountBatch(todo);
+    })));
 }
 
 async function loadClasses(t, sub) {
@@ -5197,17 +5203,14 @@ async function loadClasses(t, sub) {
 
 function countClasses(t, sub) {
   const list = dtClasses.get(subId(t.name, sub.name))?.list || [];
-  const todo = list
-    .map((c) => ({
-      id: classId(t.name, sub.name, c.name),
-      where: [
-        `TONAME(type__v) = '${vqlStr(t.name)}'`,
-        `TONAME(subtype__v) = '${vqlStr(sub.name)}'`,
-        `TONAME(classification__v) = '${vqlStr(c.name)}'`,
-      ],
-    }))
-    .filter((it) => !dtDrillCount.has(it.id));
-  if (todo.length) drillCountBatch(todo);
+  queueCounts(list.map((c) => ({
+    id: classId(t.name, sub.name, c.name),
+    where: [
+      `TONAME(type__v) = '${vqlStr(t.name)}'`,
+      `TONAME(subtype__v) = '${vqlStr(sub.name)}'`,
+      `TONAME(classification__v) = '${vqlStr(c.name)}'`,
+    ],
+  })));
 }
 
 async function toggleTypeDrill(t) {
@@ -5289,30 +5292,24 @@ function filteredProducts() {
 }
 
 function countProducts() {
-  const todo = filteredProducts()
-    .map((p) => ({ id: pId(p.id), where: [`product__v = '${vqlStr(p.id)}'`] }))
-    .filter((it) => !dtDrillCount.has(it.id));
-  if (todo.length) drillCountBatch(todo);
+  queueCounts(filteredProducts()
+    .map((p) => ({ id: pId(p.id), where: [`product__v = '${vqlStr(p.id)}'`] })));
 }
 
 function countProductTypes(p) {
-  const todo = docTypes
+  queueCounts(docTypes
     .filter((t) => t.name)
-    .map((t) => ({ id: ptId(p.id, t.name), where: [`product__v = '${vqlStr(p.id)}'`, `TONAME(type__v) = '${vqlStr(t.name)}'`] }))
-    .filter((it) => !dtDrillCount.has(it.id));
-  if (todo.length) drillCountBatch(todo);
+    .map((t) => ({ id: ptId(p.id, t.name), where: [`product__v = '${vqlStr(p.id)}'`, `TONAME(type__v) = '${vqlStr(t.name)}'`] })));
 }
 
 function countProductTypeSubs(p, t) {
   normalizeSubtypes(t);
-  const todo = (t.subtypes || [])
+  queueCounts((t.subtypes || [])
     .filter((s) => s.name)
     .map((s) => ({
       id: ptsId(p.id, t.name, s.name),
       where: [`product__v = '${vqlStr(p.id)}'`, `TONAME(type__v) = '${vqlStr(t.name)}'`, `TONAME(subtype__v) = '${vqlStr(s.name)}'`],
-    }))
-    .filter((it) => !dtDrillCount.has(it.id));
-  if (todo.length) drillCountBatch(todo);
+    })));
 }
 
 function toggleProduct(p) {
@@ -6322,20 +6319,6 @@ function base64ToBlob(b64, type) {
   return new Blob([bytes], { type: type || "application/octet-stream" });
 }
 
-// Job links come back as either a bare path or a full https URL on the vault.
-// background.js only takes a path, so reduce a same-vault URL to its path and
-// refuse anything pointing somewhere else.
-function vaultPathFromLink(href) {
-  if (!href) return null;
-  if (href.startsWith("/")) return href;
-  try {
-    const u = new URL(href);
-    if (u.host !== state.domain) return null;
-    return u.pathname + u.search;
-  } catch {
-    return null;
-  }
-}
 
 // ---- Configuration Report (whole-vault config export) -----------------------
 // Starts Vault's config report job, waits for it, and saves the ZIP locally.
@@ -6483,7 +6466,7 @@ async function runConfigReport() {
     let endpoint = null;
     for (const link of job?.links || []) {
       if (/report/i.test(link.href || "") || /artifact/i.test(link.rel || "")) {
-        endpoint = vaultPathFromLink(link.href);
+        endpoint = vaultPath(link.href);   // handles both a full vault URL and a bare path
         if (endpoint) break;
       }
     }
