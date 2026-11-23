@@ -6391,7 +6391,6 @@ function reportError(msg) {
   if (text) { text.className = "export-progress-text error"; text.textContent = msg; }
 }
 
-
 async function runConfigReport() {
   if (configReportBusy || !state.sessionId) return;
   configReportBusy = true;
@@ -6463,7 +6462,6 @@ async function runConfigReport() {
 }
 
 // ---- Export menu ------------------------------------------------------------
-const exportWrap = document.getElementById("export-wrap");
 const exportBtn = document.getElementById("export-btn");
 const exportMenu = document.getElementById("export-menu");
 
