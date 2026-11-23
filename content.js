@@ -48,6 +48,10 @@
       display: "block",
     });
 
+    // Also push the current record once the panel loads, so "Query this record"
+    // appears even if the panel's ready signal races ahead of this frame.
+    iframe.addEventListener("load", () => sendRecord());
+
     wrap.appendChild(iframe);
     document.documentElement.appendChild(wrap);
   }
