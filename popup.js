@@ -153,7 +153,7 @@ function closeOverlay() {
 // or they get clipped by the resized iframe.
 if (!WINDOW_MODE) {
   const shell = document.querySelector(".shell");
-  const floatingPanels = [acDropdown, historyPopover];
+  const floatingPanels = [acDropdown, historyPopover, savedPopover];
   let lastHeight = 0;
 
   const reportHeight = () => {
@@ -181,11 +181,15 @@ if (!WINDOW_MODE) {
 document.addEventListener("DOMContentLoaded", async () => {
   const saved = await chrome.storage.local.get([
     "vaultDomain", "queryHistory", "queryTabs", "queryLimit",
-    "valueMode", "explorerPanel", "editorHeight",
+    "valueMode", "explorerPanel", "editorHeight", "savedQueries",
   ]);
   if (VALUE_MODES.includes(saved.valueMode)) valueMode = saved.valueMode;
   paintValueMode();
   if (saved.queryHistory) state.history = saved.queryHistory;
+  // Saved queries are global — one list across every vault, so a consultant's
+  // discovery set travels with them.
+  if (Array.isArray(saved.savedQueries)) savedQueries = saved.savedQueries;
+  renderSaved();
   // Per-vault data loads once autoConnect knows the domain; caches from older
   // versions are moved to per-vault keys by migrateVaultCaches().
   if (WINDOW_MODE) initWorkbench(saved);
@@ -371,6 +375,7 @@ async function autoConnect(domain) {
   setStatus("connected", "Connected");
   showUserInfo(userResult.data);
   showVqlPanel();
+  loadExportAccess();
 
   // This vault's saved data model and document types show at once; then the
   // model checks itself, and the types do when their tab is open.
@@ -529,10 +534,12 @@ function closeHistory() {
   historyBtn.setAttribute("aria-expanded", "false");
 }
 
-// The History pill drops the list under itself, and closes autocomplete on the way.
+// The History pill drops the list under itself, and closes autocomplete and the
+// Saved popover on the way.
 historyBtn.addEventListener("click", () => {
   const wasHidden = historyPopover.classList.contains("hidden");
   closeHistory();
+  closeSaved();
   hideAc();
   if (wasHidden) {
     historyPopover.classList.remove("hidden");
@@ -741,6 +748,9 @@ document.addEventListener("click", (e) => {
   if (!historyPopover.classList.contains("hidden") && !e.target.closest("#history-popover, #history-btn")) {
     closeHistory();
   }
+  if (!savedPopover.classList.contains("hidden") && !e.target.closest("#saved-popover, #saved-btn")) {
+    closeSaved();
+  }
 });
 
 document.addEventListener("keydown", (e) => {
@@ -754,6 +764,12 @@ document.addEventListener("keydown", (e) => {
     const inside = historyPopover.contains(document.activeElement);
     closeHistory();
     if (inside) historyBtn.focus();
+  }
+  // Don't steal Escape from an in-progress rename (it reverts that instead).
+  if (!savedPopover.classList.contains("hidden") && !e.target.classList.contains("saved-rename-input")) {
+    const inside = savedPopover.contains(document.activeElement);
+    closeSaved();
+    if (inside) savedBtn.focus();
   }
 });
 
@@ -1916,6 +1932,146 @@ clearHistoryBtn.addEventListener("click", () => {
   chrome.storage.local.set({ queryHistory: [] });
   renderHistory();
 });
+
+// ===================== SAVED QUERIES =====================
+// Deliberately kept, named queries — distinct from History (automatic, recent).
+// Global: one list across every vault, so a discovery set travels with you. The
+// same rows render into the overlay popover and the full-window rail panel.
+let savedQueries = [];
+let savedRenameId = null;
+const savedBtn = $("#saved-btn");
+const savedPopover = $("#saved-popover");
+const savedList = $("#saved-list");
+const savedRailList = $("#saved-rail-list");
+
+function persistSaved() {
+  chrome.storage.local.set({ savedQueries });
+}
+
+// A first-guess name from the query's FROM target; the user renames inline.
+function defaultSavedName(q) {
+  const m = /\bFROM\s+([a-z0-9_]+)/i.exec(q);
+  return m ? m[1] : "Saved query";
+}
+
+function savedRowHtml(s) {
+  if (s.id === savedRenameId) {
+    return `<div class="saved-row renaming" data-id="${s.id}">` +
+      `<input class="saved-rename-input" type="text" maxlength="60" value="${esc(s.name)}" aria-label="Query name" /></div>`;
+  }
+  return (
+    `<div class="saved-row" data-id="${s.id}" title="${esc(s.query)}">` +
+    `<button type="button" class="saved-load">` +
+    `<span class="saved-name">${esc(s.name)}</span>` +
+    `<span class="saved-q">${esc(s.query.replace(/\s+/g, " "))}</span></button>` +
+    `<span class="saved-actions">` +
+    `<button type="button" class="saved-edit" title="Rename" aria-label="Rename">` +
+    `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>` +
+    `<button type="button" class="saved-del" title="Delete" aria-label="Delete">` +
+    `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>` +
+    `</span></div>`
+  );
+}
+
+function renderSaved() {
+  const html = savedQueries.length
+    ? savedQueries.map(savedRowHtml).join("")
+    : '<div class="saved-empty">No saved queries yet. Write one, then “Save current”.</div>';
+  if (savedList) savedList.innerHTML = html;
+  if (savedRailList) savedRailList.innerHTML = html;
+  // Focus whichever rename input is actually on screen (overlay or rail).
+  if (savedRenameId) {
+    for (const inp of document.querySelectorAll(".saved-rename-input")) {
+      if (inp.offsetParent !== null) { inp.focus(); inp.select(); break; }
+    }
+  }
+}
+
+function saveCurrentQuery() {
+  const q = vqlInput.value.trim();
+  if (!q) return;
+  const id = `sq_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  savedQueries.unshift({ id, name: defaultSavedName(q), query: q, ts: Date.now() });
+  persistSaved();
+  savedRenameId = id;            // drop straight into naming it
+  renderSaved();
+}
+
+function beginRenameSaved(id) {
+  savedRenameId = id;
+  renderSaved();
+}
+
+function commitRenameSaved(id, value) {
+  const s = savedQueries.find((x) => x.id === id);
+  if (s) { s.name = (value || "").trim() || s.name; persistSaved(); }
+  savedRenameId = null;
+  renderSaved();
+}
+
+function removeSaved(id) {
+  savedQueries = savedQueries.filter((s) => s.id !== id);
+  if (savedRenameId === id) savedRenameId = null;
+  persistSaved();
+  renderSaved();
+}
+
+function loadSavedIntoEditor(id) {
+  const s = savedQueries.find((x) => x.id === id);
+  if (!s) return;
+  vqlInput.value = s.query;
+  historyNavIndex = -1;
+  activatePane("query");
+  vqlInput.focus();
+  vqlInput.setSelectionRange(s.query.length, s.query.length);
+  editorChanged();
+}
+
+function closeSaved() {
+  savedPopover.classList.add("hidden");
+  savedBtn.setAttribute("aria-expanded", "false");
+}
+
+// The overlay pill drops the list under itself, closing History and autocomplete.
+savedBtn.addEventListener("click", () => {
+  const wasHidden = savedPopover.classList.contains("hidden");
+  closeSaved();
+  closeHistory();
+  hideAc();
+  if (wasHidden) {
+    savedPopover.classList.remove("hidden");
+    savedBtn.setAttribute("aria-expanded", "true");
+    renderSaved();
+  }
+});
+
+$("#saved-add-btn").addEventListener("click", saveCurrentQuery);
+
+// Both the overlay list and the rail list share these handlers.
+function wireSavedList(container) {
+  if (!container) return;
+  container.addEventListener("click", (e) => {
+    const row = e.target.closest(".saved-row");
+    if (!row) return;
+    const id = row.dataset.id;
+    if (e.target.closest(".saved-del")) { removeSaved(id); return; }
+    if (e.target.closest(".saved-edit")) { beginRenameSaved(id); return; }
+    if (e.target.closest(".saved-load")) { loadSavedIntoEditor(id); closeSaved(); }
+  });
+  container.addEventListener("keydown", (e) => {
+    if (!e.target.classList.contains("saved-rename-input")) return;
+    const id = e.target.closest(".saved-row")?.dataset.id;
+    if (e.key === "Enter") { e.preventDefault(); commitRenameSaved(id, e.target.value); }
+    else if (e.key === "Escape") { savedRenameId = null; renderSaved(); }
+  });
+  container.addEventListener("focusout", (e) => {
+    if (!e.target.classList.contains("saved-rename-input")) return;
+    const id = e.target.closest(".saved-row")?.dataset.id;
+    if (savedRenameId === id) commitRenameSaved(id, e.target.value);
+  });
+}
+wireSavedList(savedList);
+wireSavedList(savedRailList);
 
 // ===================== DATA MODEL =====================
 // ---- Loading by itself ---------------------------------------------------------
@@ -5583,6 +5739,241 @@ async function apiCall(endpoint, method = "GET", body = null, headers = null, co
   return res;
 }
 
+// ---- API download (binary) --------------------------------------------------
+// The config report comes back as a ZIP, which runtime messages can't carry, so
+// background.js hands it over as base64.
+async function apiDownload(endpoint) {
+  const res = await chrome.runtime.sendMessage({
+    action: "apiDownload",
+    domain: state.domain,
+    sessionId: state.sessionId,
+    version: state.apiVersion,
+    endpoint,
+  });
+  noteBurst(res?.burst);
+  return res;
+}
+
+function base64ToBlob(b64, type) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: type || "application/octet-stream" });
+}
+
+// Job links come back as either a bare path or a full https URL on the vault.
+// background.js only takes a path, so reduce a same-vault URL to its path and
+// refuse anything pointing somewhere else.
+function vaultPathFromLink(href) {
+  if (!href) return null;
+  if (href.startsWith("/")) return href;
+  try {
+    const u = new URL(href);
+    if (u.host !== state.domain) return null;
+    return u.pathname + u.search;
+  } catch {
+    return null;
+  }
+}
+
+// ---- Configuration Report (whole-vault config export) -----------------------
+// Starts Vault's config report job, waits for it, and saves the ZIP locally.
+// Named component types are requested, so Vault leaves out the object-data
+// (record) workbook. Needs the "Vault Configuration Report" permission.
+const CONFIG_REPORT_COMPONENTS = "Doctype,Doclifecycle,Docfield,Object,Objectlifecycle,Picklist";
+const CONFIG_REPORT_TERMINAL = ["ERRORS_ENCOUNTERED", "CANCELLED", "TIMEOUT", "MISSED_SCHEDULE"];
+let configReportBusy = false;
+
+// ---- Progress: an estimate bar tuned to a typical run ----
+// Vault reports no real percentage for this job, so the fill eases toward a
+// typical finish and the countdown self-corrects to "almost done" if it runs
+// long — never a frozen 99% or a broken promise. The timer ticks every second,
+// independent of the 12-second status checks.
+const EXPORT_TYPICAL_SECS = 165;
+let reportTimer = null;
+let reportStartMs = 0;
+
+function fmtClock(s) {
+  s = Math.max(0, Math.round(s));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function paintReportProgress() {
+  const fill = document.getElementById("export-bar-fill");
+  const text = document.getElementById("export-progress-text");
+  if (!fill || !text) return;
+  const e = (Date.now() - reportStartMs) / 1000;
+  const easeOut = (t) => 1 - Math.pow(1 - t, 2.2);
+  const w = e < EXPORT_TYPICAL_SECS
+    ? easeOut(e / EXPORT_TYPICAL_SECS) * 0.94
+    : 0.94 + Math.min(1, (e - EXPORT_TYPICAL_SECS) / EXPORT_TYPICAL_SECS) * 0.05;
+  fill.style.width = `${(Math.min(w, 0.99) * 100).toFixed(1)}%`;
+  const left = EXPORT_TYPICAL_SECS - e;
+  text.className = "export-progress-text";
+  text.textContent = left > 6 ? `${fmtClock(e)} · about ${fmtClock(left)} left` : `${fmtClock(e)} · almost done`;
+}
+
+function startReportProgress() {
+  reportStartMs = Date.now();
+  document.getElementById("export-progress")?.classList.remove("hidden", "done");
+  document.getElementById("export-spin")?.classList.remove("hidden");
+  const fill = document.getElementById("export-bar-fill");
+  if (fill) fill.style.width = "0%";
+  paintReportProgress();
+  clearInterval(reportTimer);
+  reportTimer = setInterval(paintReportProgress, 1000);
+}
+
+// A quiet finish: the bar fills green, no filename or size — the browser's own
+// download already shows that.
+function reportDone() {
+  clearInterval(reportTimer);
+  document.getElementById("export-spin")?.classList.add("hidden");
+  const prog = document.getElementById("export-progress");
+  const fill = document.getElementById("export-bar-fill");
+  const text = document.getElementById("export-progress-text");
+  prog?.classList.add("done");
+  if (fill) fill.style.width = "100%";
+  if (text) text.textContent = "";
+  setTimeout(() => { if (!configReportBusy) prog?.classList.add("hidden"); }, 2500);
+}
+
+function reportError(msg) {
+  clearInterval(reportTimer);
+  document.getElementById("export-spin")?.classList.add("hidden");
+  const fill = document.getElementById("export-bar-fill");
+  const text = document.getElementById("export-progress-text");
+  if (fill) fill.style.width = "0%";
+  document.getElementById("export-progress")?.classList.remove("hidden", "done");
+  if (text) { text.className = "export-progress-text error"; text.textContent = msg; }
+}
+
+// Whether a failed call is Vault refusing for lack of permission, vs a real error.
+function isPermissionError(result) {
+  const type = result?.data?.errors?.[0]?.type || "";
+  const msg = result?.data?.errors?.[0]?.message || result?.error || "";
+  return /INSUFFICIENT_ACCESS|INSUFFICIENT_PERMISSION|FORBIDDEN|NO_PERMISSION/i.test(type)
+    || /permission|not authorized|unauthorized|access denied/i.test(msg);
+}
+
+// Lazy gating: there's no cheap API to check the Vault Configuration Report
+// permission up front, so the control shows until Vault refuses once; then it's
+// remembered per vault and hidden. (Config report is the menu's only item today,
+// so hiding the whole control is right; a permission-free snapshot later would
+// gate per item instead.)
+const exportDeniedKey = (domain) => `configReportDenied:${domain}`;
+
+async function loadExportAccess() {
+  const wrap = document.getElementById("export-wrap");
+  if (!wrap) return;
+  if (!state.domain) { wrap.classList.remove("hidden"); return; }
+  const key = exportDeniedKey(state.domain);
+  const denied = (await chrome.storage.local.get([key]))[key];
+  wrap.classList.toggle("hidden", !!denied);
+}
+
+async function runConfigReport() {
+  if (configReportBusy || !state.sessionId) return;
+  configReportBusy = true;
+  try {
+    startReportProgress();
+    const start = await apiCall(
+      "/objects/vault/actions/configreport",
+      "POST",
+      `component_types=${encodeURIComponent(CONFIG_REPORT_COMPONENTS)}&output_format=Excel`
+    );
+    const jobId = start?.data?.job_id;
+    if (!apiOk(start) || start.data?.responseStatus !== "SUCCESS" || !jobId) {
+      console.warn("[config report] could not start", start);
+      if (isPermissionError(start)) {
+        reportError("You don’t have the Vault Configuration Report permission.");
+        if (state.domain) chrome.storage.local.set({ [exportDeniedKey(state.domain)]: true });
+        // Hide the control for this vault once they've seen why.
+        setTimeout(() => document.getElementById("export-wrap")?.classList.add("hidden"), 4000);
+      } else {
+        reportError(apiErr(start));
+      }
+      return;
+    }
+    console.log("[config report] job_id", jobId);
+
+    // Vault allows one status check per job every 10 seconds; the bar is driven
+    // by its own 1-second timer meanwhile.
+    let job = null, status = "";
+    for (let i = 1; i <= 80; i++) {
+      await sleep(12000);
+      const st = await apiCall(`/services/jobs/${jobId}`);
+      job = st?.data?.data || null;
+      status = job?.status || "";
+      if (status === "SUCCESS") break;
+      if (CONFIG_REPORT_TERMINAL.includes(status)) {
+        console.warn("[config report] job ended", job);
+        reportError(`Job ended: ${status}`);
+        return;
+      }
+    }
+    if (status !== "SUCCESS") {
+      reportError("Gave up waiting for the job.");
+      return;
+    }
+
+    // Prefer the download link Vault names on the finished job (its href may be
+    // a full vault URL); fall back to the documented report path.
+    let endpoint = null;
+    for (const link of job?.links || []) {
+      if (/report/i.test(link.href || "") || /artifact/i.test(link.rel || "")) {
+        endpoint = vaultPathFromLink(link.href);
+        if (endpoint) break;
+      }
+    }
+    endpoint = endpoint || `/objects/vault/actions/configreport/${jobId}/report`;
+    const dl = await apiDownload(endpoint);
+    if (!dl?.success || !dl.base64) {
+      console.warn("[config report] download failed", dl, "job links:", job?.links);
+      reportError(dl?.error || "Download failed.");
+      return;
+    }
+    const stamp = new Date().toISOString().slice(0, 10);
+    const name = `${(state.domain || "vault").split(".")[0]}-config-${stamp}.zip`;
+    downloadBlob(base64ToBlob(dl.base64, dl.contentType || "application/zip"), name);
+    reportDone();
+  } catch (e) {
+    console.error("[config report]", e);
+    reportError(e.message || "Something went wrong.");
+  } finally {
+    configReportBusy = false;
+  }
+}
+
+// ---- Export menu ------------------------------------------------------------
+const exportWrap = document.getElementById("export-wrap");
+const exportBtn = document.getElementById("export-btn");
+const exportMenu = document.getElementById("export-menu");
+
+function closeExportMenu() {
+  // Keep it open while a report is running so its progress stays visible.
+  if (configReportBusy) return;
+  exportMenu?.classList.add("hidden");
+  exportBtn?.setAttribute("aria-expanded", "false");
+}
+
+if (exportBtn && exportMenu) {
+  exportBtn.addEventListener("click", () => {
+    const open = exportMenu.classList.toggle("hidden");
+    exportBtn.setAttribute("aria-expanded", String(!open));
+  });
+  document.getElementById("export-config-report")?.addEventListener("click", () => {
+    if (!state.sessionId) { reportError("Connect to a Vault first."); return; }
+    runConfigReport();
+  });
+  document.addEventListener("click", (e) => {
+    if (!exportMenu.classList.contains("hidden") && !e.target.closest("#export-wrap")) closeExportMenu();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !exportMenu.classList.contains("hidden")) { closeExportMenu(); exportBtn.focus(); }
+  });
+}
+
 // ---- API version ------------------------------------------------------------
 // The newest version this extension has been checked against (Veeva's VQL and
 // API reference at v26.2). A vault on a later release is still called at this
@@ -5654,9 +6045,10 @@ const inspCopy = $("#insp-copy");
 const recentList = $("#recent-list");
 const inspClose = $("#insp-close");
 const railHistory = $("#rail-history");
+const railSaved = $("#rail-saved");
 const splitHandle = $("#split-handle");
 
-// The explorer beside the rail: "model", "history", or null when closed.
+// The explorer beside the rail: "model", "history", "saved", or null when closed.
 let explorerPanel = "model";
 // The editor height the split was dragged to, or null to fit the query.
 let editorHeight = null;
@@ -5791,6 +6183,9 @@ function wireWorkbench() {
   railHistory.addEventListener("click", () => toggleExplorer("history"));
   $("#eh-clear").addEventListener("click", () => clearHistoryBtn.click());
 
+  railSaved.addEventListener("click", () => toggleExplorer("saved"));
+  $("#es-add").addEventListener("click", saveCurrentQuery);
+
   inspClose.addEventListener("click", closeInspector);
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || !vqlPanel.classList.contains("row-open")) return;
@@ -5824,6 +6219,8 @@ function setExplorer(panel, save = true) {
   modelBtn.setAttribute("aria-pressed", String(panel === "model"));
   railHistory.classList.toggle("on", panel === "history");
   railHistory.setAttribute("aria-pressed", String(panel === "history"));
+  railSaved.classList.toggle("on", panel === "saved");
+  railSaved.setAttribute("aria-pressed", String(panel === "saved"));
   if (save) chrome.storage.local.set({ explorerPanel: panel || "none" });
   if (panel === "model") syncDmToQuery();
 }

@@ -35,6 +35,37 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
       </button>
 
+      <!-- Full window: the Saved queries panel, History's twin in the rail. -->
+      <button id="rail-saved" class="rail-btn window-only" type="button" title="Saved Queries" aria-label="Saved queries" aria-pressed="false">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>
+      </button>
+
+      <!-- Whole-vault exports. One home for the config report and, later, the
+           vault snapshot. A labelled pill in the overlay bar; an icon in the
+           full-window rail, where the menu opens to the right. -->
+      <div id="export-wrap" class="export-wrap">
+        <button id="export-btn" class="export-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu" title="Export" aria-label="Export">
+          <svg class="export-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          <svg class="export-caret" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div id="export-menu" class="export-menu hidden" role="menu" aria-label="Export">
+          <button id="export-config-report" class="export-item" type="button" role="menuitem">
+            <span class="export-item-row">
+              <svg class="export-item-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+              <span class="export-item-title">Configuration report</span>
+              <span id="export-spin" class="export-spin hidden" aria-hidden="true"></span>
+            </span>
+            <!-- Estimate bar + a per-second timer, shown only while a report runs.
+                 Vault reports no real progress, so the fill and countdown are
+                 tuned to a typical run and ease rather than stall. -->
+            <span id="export-progress" class="export-progress hidden">
+              <span class="export-bar"><i id="export-bar-fill"></i></span>
+              <span id="export-progress-text" class="export-progress-text" role="status" aria-live="polite"></span>
+            </span>
+          </button>
+        </div>
+      </div>
+
       <!-- One pill in full-window mode (vault · user); both wrappers are
            display:contents in the overlay, so its layout is unchanged. -->
       <div class="topbar-conn">
@@ -128,6 +159,23 @@
                   <button id="clear-history-btn" class="btn btn-small btn-text">Clear</button>
                 </div>
                 <div id="history-list"></div>
+              </div>
+            </div>
+            <!-- Saved queries: deliberately kept and named, global across every
+                 vault. History's twin — a pill + popover in the overlay, a rail
+                 panel in the full window. -->
+            <div class="saved-wrap">
+              <button id="saved-btn" class="history-corner" type="button" title="Saved Queries"
+                      aria-haspopup="true" aria-expanded="false" aria-controls="saved-popover">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>
+                <span class="history-corner-label">Saved</span>
+              </button>
+              <div id="saved-popover" class="history-popover hidden">
+                <div class="popover-header">
+                  <span>Saved queries</span>
+                  <button id="saved-add-btn" class="btn btn-small btn-text">Save current</button>
+                </div>
+                <div id="saved-list"></div>
               </div>
             </div>
             <!-- Full-window only. Clear, Cancel and Run are moved in here by
@@ -239,6 +287,15 @@
           <button id="eh-clear" class="eh-clear" type="button">Clear</button>
         </div>
         <div id="recent-list" class="recent-list"></div>
+      </aside>
+
+      <!-- Saved queries panel — full-window only, opened from the rail. -->
+      <aside id="explorer-saved" class="explorer-saved window-only" aria-label="Saved queries">
+        <div class="eh-head">
+          <span class="eh-title">Saved</span>
+          <button id="es-add" class="eh-clear" type="button">Save current</button>
+        </div>
+        <div id="saved-rail-list" class="recent-list saved-list"></div>
       </aside>
 
       <!-- Data Models Tab -->

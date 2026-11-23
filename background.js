@@ -49,6 +49,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === "apiDownload") {
+    downloadVaultFile(request.domain, request.sessionId, request.endpoint, {
+      version: request.version,
+    }).then(sendResponse);
+    return true;
+  }
+
 });
 
 async function getVaultToken(domain) {
@@ -146,6 +153,48 @@ async function makeVaultApiCall(domain, sessionId, endpoint, method = "GET", bod
       return { success: false, error: `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`, burst };
     }
     return { success: true, data, burst };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+// Fetches a binary endpoint (the Configuration Report ZIP) and hands it back as
+// base64, since runtime messages can't carry raw bytes. Vault answers with JSON
+// on error and the file on success, so the content type decides which path.
+async function downloadVaultFile(domain, sessionId, endpoint, opts = {}) {
+  if (!isVaultHost(domain)) {
+    return { success: false, error: "Not a Vault domain." };
+  }
+  const path = String(endpoint || "");
+  if (!path.startsWith("/") || path.startsWith("//")) {
+    return { success: false, error: "Invalid API path." };
+  }
+  const version = API_VERSION_RE.test(opts.version || "") ? opts.version : DEFAULT_API_VERSION;
+  try {
+    const url = path === "/api/" || /^\/api\/v\d+(\.\d+)?\//.test(path)
+      ? `https://${domain}${path}`
+      : `https://${domain}/api/${version}${path}`;
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "Authorization": sessionId },
+    });
+    const burst = burstOf(response);
+    const contentType = response.headers.get("Content-Type") || "";
+    if (contentType.includes("application/json")) {
+      let data = null;
+      try { data = await response.json(); } catch { /* leave null */ }
+      const error = data?.errors?.[0]?.message
+        || (data ? "Vault returned an error instead of a file." : `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`);
+      return { success: false, error, data, burst };
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // Chunked so a large file doesn't blow the argument limit of fromCharCode.
+    let binary = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return { success: true, base64: btoa(binary), contentType, size: bytes.length, burst };
   } catch (err) {
     return { success: false, error: err.message };
   }

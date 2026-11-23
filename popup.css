@@ -248,6 +248,117 @@ body:not(.mode-window) .window-only { display: none !important; }
 .topbar-icon-accent:hover { background: var(--accent); color: var(--ink); }
 .topbar-icon-danger:hover { background: var(--red); color: var(--white); }
 
+/* ---- Export menu: whole-vault exports (config report, later a snapshot) ---- */
+.export-wrap { position: relative; flex-shrink: 0; }
+/* Just the download icon and a caret; it opens the menu. */
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--radius-2xs);
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.export-btn:hover { background: var(--bg-deep); color: var(--text); }
+.export-btn[aria-expanded="true"] { background: var(--accent-light); color: var(--accent-hover); }
+.export-ico { flex-shrink: 0; }
+.export-caret { opacity: .7; }
+
+.export-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 232px;
+  padding: 5px;
+  background: var(--white);
+  border: .5px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px rgba(22, 21, 15, .18);
+}
+.export-menu.hidden { display: none; }
+.export-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.export-item:hover { background: var(--bg-deep); }
+.export-item-row { display: flex; align-items: center; gap: 8px; }
+.export-item-ico { flex-shrink: 0; color: var(--accent-hover); }
+.export-item-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+
+/* The running spinner, swapped out when idle/done. */
+.export-spin {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border: 2px solid var(--accent-light);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: export-spin .8s linear infinite;
+}
+@keyframes export-spin { to { transform: rotate(360deg); } }
+
+/* The estimate bar + timer, only while a report runs. */
+.export-progress { display: block; margin-top: 8px; }
+.export-progress.hidden { display: none; }
+.export-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--seg-bg);
+  overflow: hidden;
+}
+.export-bar > i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d6a64a, var(--accent));
+  transition: width .9s linear;
+}
+.export-progress.done .export-bar > i { background: var(--green); }
+.export-progress-text {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-hint);
+}
+.export-progress-text.error { color: var(--red); white-space: normal; font-family: inherit; }
+
+/* Full window: the button is an icon in the rail; the menu opens to the right. */
+body.mode-window .export-wrap { width: 40px; }
+body.mode-window .export-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-sec);
+}
+body.mode-window .export-btn:hover { background: var(--hover); color: var(--ink); }
+body.mode-window .export-caret { display: none; }
+body.mode-window .export-ico { width: 18px; height: 18px; }
+body.mode-window .export-menu {
+  top: 0;
+  right: auto;
+  left: calc(100% + 8px);
+}
+
 /* ========== CARDS ========== */
 .card {
   background: var(--white);
@@ -1012,6 +1123,84 @@ textarea::placeholder { color: var(--text-faint); }
   color: var(--text-hint);
   padding: 4px 0;
 }
+
+/* ---- Saved queries: rows shared by the overlay popover and the rail panel ---- */
+.saved-wrap { position: relative; display: inline-flex; }
+.saved-empty {
+  font-size: 11px;
+  color: var(--text-hint);
+  padding: 8px 4px;
+  line-height: 1.4;
+}
+.saved-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-xs);
+}
+.saved-row:hover { background: var(--hover); }
+.saved-load {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  font-family: inherit;
+}
+.saved-name {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.saved-q {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-hint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.saved-actions { display: flex; gap: 1px; padding-right: 4px; opacity: 0; transition: opacity .12s; }
+.saved-row:hover .saved-actions,
+.saved-row:focus-within .saved-actions { opacity: 1; }
+.saved-edit, .saved-del {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-hint);
+  cursor: pointer;
+  font-size: 12px;
+}
+.saved-edit:hover { background: var(--bg-deep); color: var(--ink); }
+.saved-del:hover { background: var(--red-bg); color: var(--red); }
+.saved-rename-input {
+  flex: 1;
+  min-width: 0;
+  margin: 3px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+  background: var(--white);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.saved-rename-input:focus { outline: 2px solid var(--accent-glow); outline-offset: 1px; }
 
 /* ========== DATA MODEL ========== */
 /* Search-first: you type, and matching fields come back grouped under the
@@ -2317,8 +2506,9 @@ body.mode-window .statusbar .topbar-user::before {
 
 body.mode-window .model-chip:hover { background-color: #d6a64a; }
 
-/* The rail's History panel stands in for the toolbar pill here. */
-body.mode-window .history-wrap { display: none; }
+/* The rail's panels stand in for the toolbar pills here. */
+body.mode-window .history-wrap,
+body.mode-window .saved-wrap { display: none; }
 
 /* ---- Columns ---- */
 body.mode-window #vql-panel {
@@ -2327,13 +2517,16 @@ body.mode-window #vql-panel {
   min-height: 0;
 }
 
-/* ---- Explorer: the data model or the history, beside the rail ---- */
+/* ---- Explorer: the data model, the history or the saved queries, beside the rail ---- */
 body.mode-window[data-explorer="history"] #tab-datamodel,
+body.mode-window[data-explorer="saved"] #tab-datamodel,
 body.mode-window[data-explorer="none"] #tab-datamodel { display: none; }
 
-body.mode-window .explorer-history { display: none; }
+body.mode-window .explorer-history,
+body.mode-window .explorer-saved { display: none; }
 
-body.mode-window[data-explorer="history"] .explorer-history {
+body.mode-window[data-explorer="history"] .explorer-history,
+body.mode-window[data-explorer="saved"] .explorer-saved {
   display: flex;
   flex-direction: column;
   order: -1;
@@ -3631,5 +3824,6 @@ body.mode-window .sub-table td.col-id { font-size: 11px; color: var(--text-mid);
 /* Then some explorer width. */
 @media (max-width: 1000px) {
   body.mode-window #tab-datamodel,
-  body.mode-window[data-explorer="history"] .explorer-history { width: 240px; }
+  body.mode-window[data-explorer="history"] .explorer-history,
+  body.mode-window[data-explorer="saved"] .explorer-saved { width: 240px; }
 }
