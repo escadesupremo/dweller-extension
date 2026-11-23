@@ -1864,6 +1864,8 @@ textarea::placeholder { color: var(--text-faint); }
   display: flex;
   align-items: center;
   gap: 8px;
+  row-gap: 2px;
+  flex-wrap: wrap;
   padding: 7px 8px;
   border-bottom: 1px solid var(--border);
   position: sticky;
@@ -1871,6 +1873,9 @@ textarea::placeholder { color: var(--text-faint); }
   background: var(--white);
   z-index: 1;
 }
+/* The group-by toggle fills the first line; the count age gets its own line so
+   it never truncates to "counte…". */
+.dt-sortbar .sync-line { flex-basis: 100%; margin-left: 0; }
 
 /* A small pill switch: the tab switcher's track and thumb, at list-header
    size. The data model's Fields | Lookups | Children uses it. */
