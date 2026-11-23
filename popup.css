@@ -1202,10 +1202,11 @@ textarea::placeholder { color: var(--text-faint); }
 }
 .saved-rename-input:focus { outline: 2px solid var(--accent-glow); outline-offset: 1px; }
 
-/* ---- "Query this record": a pill by History, overlay + record page only ---- */
-.record-chip { flex-shrink: 0; }
+/* ---- "Query this record": an icon-only gold pill by History, overlay +
+   record page only. The gold carries the "this is special" cue; the tooltip
+   names the record. ---- */
+.record-chip { flex-shrink: 0; padding: 0 6px; }
 .record-chip.hidden { display: none; }
-/* Accented so it reads as the contextual action it is. */
 .record-chip {
   background: var(--gold-bg);
   border-color: var(--accent);
