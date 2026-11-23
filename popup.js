@@ -6392,14 +6392,6 @@ function reportError(msg) {
   if (text) { text.className = "export-progress-text error"; text.textContent = msg; }
 }
 
-// Whether a failed call is Vault refusing for lack of permission, vs a real error.
-function isPermissionError(result) {
-  const type = result?.data?.errors?.[0]?.type || "";
-  const msg = result?.data?.errors?.[0]?.message || result?.error || "";
-  return /INSUFFICIENT_ACCESS|INSUFFICIENT_PERMISSION|FORBIDDEN|NO_PERMISSION/i.test(type)
-    || /permission|not authorized|unauthorized|access denied/i.test(msg);
-}
-
 // Lazy gating: there's no cheap API to check the Vault Configuration Report
 // permission up front, so the control shows until Vault refuses once; then it's
 // remembered per vault and hidden. (Config report is the menu's only item today,
@@ -6429,13 +6421,17 @@ async function runConfigReport() {
     const jobId = start?.data?.job_id;
     if (!apiOk(start) || start.data?.responseStatus !== "SUCCESS" || !jobId) {
       console.warn("[config report] could not start", start);
-      if (isPermissionError(start)) {
-        reportError("You don’t have the Vault Configuration Report permission.");
+      // The request is well-formed, so if Vault actually answered and refused
+      // (a FAILURE response, or no job id), this user can't run the report on
+      // this vault — remember it and hide the control, whatever the wording.
+      // A transport failure (no answer from Vault) is transient: leave it.
+      const vaultRefused = start?.success === true;
+      if (vaultRefused) {
+        reportError("You don’t have access to the Vault Configuration Report on this vault — hiding it here.");
         if (state.domain) chrome.storage.local.set({ [exportDeniedKey(state.domain)]: true });
-        // Hide the control for this vault once they've seen why.
-        setTimeout(() => document.getElementById("export-wrap")?.classList.add("hidden"), 4000);
+        setTimeout(() => document.getElementById("export-wrap")?.classList.add("hidden"), 3500);
       } else {
-        reportError(apiErr(start));
+        reportError(apiErr(start));   // transient (e.g. network): stays, you can retry
       }
       return;
     }
