@@ -4637,8 +4637,10 @@ function dtTabActive() {
 
 function onDocTypesShown() {
   if (!state.sessionId) return paintSync();
+  // The type list is needed either way (product mode drills into it).
   if (!sync.typesListAt && !sync.typesListing && !sync.typesError) syncTypeList();
   else maybeCountTypes();
+  if (dtGroupBy === "product") ensureProducts();
 }
 
 // Saved types made ready: when each was fetched and counted. Earlier versions
@@ -4765,6 +4767,7 @@ function fetchDocType(type) {
 // Counts, while the tab is open: those over a day old, or never taken. Most
 // records first is the list's order, so the biggest types settle first.
 function maybeCountTypes() {
+  if (dtGroupBy !== "type") return paintSync();   // product mode counts per product, not per type
   if (!dtTabActive() || sync.counting || !docTypes.length || !state.sessionId) return paintSync();
   const due = docTypes
     .filter(countDue)
@@ -5133,7 +5136,185 @@ async function toggleSubDrill(t, sub) {
   countClasses(t, sub);
 }
 
+// ---- Group documents by product (a field), not just by type -----------------
+// Type/subtype/classification is a fixed tree; product is a field on the
+// document, so it's a parallel axis. The group-by control pivots the count list.
+// Counts reuse drillCountBatch; product nodes are namespaced with a "P|" prefix.
+// Product is multi-value, so these counts can overlap (a doc with two products
+// is counted under both).
+let dtGroupBy = "type";          // "type" | "product"
+let dtProducts = [];             // [{id, name}]
+let dtProductsState = "idle";    // idle | loading | done | error
+let dtProductsError = "";
+let dtProdFilter = "";
+const prodExpanded = new Set();      // product ids open
+const prodTypeExpanded = new Set();  // `${prodId}|${typeName}` open
+const P = "P";
+const pId = (prod) => `${P}|${prod}`;
+const ptId = (prod, type) => `${P}|${prod}|${type}`;
+const ptsId = (prod, type, sub) => `${P}|${prod}|${type}|${sub}`;
+
+function setGroupBy(gb) {
+  if (dtGroupBy === gb) return;
+  dtGroupBy = gb;
+  for (const b of document.querySelectorAll("#dt-groupby .dt-sort-opt")) {
+    const on = b.dataset.gb === gb;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", String(on));
+  }
+  document.getElementById("dt-prod-filter-wrap")?.classList.toggle("hidden", gb !== "product");
+  renderDocTypeList();
+  paintSync();
+  if (gb === "product") ensureProducts();
+  else maybeCountTypes();
+}
+
+async function ensureProducts() {
+  if (!state.sessionId) return;
+  if (dtProductsState === "done") { countProducts(); return; }
+  if (dtProductsState === "loading") return;
+  dtProductsState = "loading";
+  renderDocTypeList();
+  const q = "SELECT id, name__v FROM product__v ORDER BY name__v ASC MAXROWS 1000";
+  const res = await apiCall("/query", "POST", `q=${encodeURIComponent(q)}`);
+  if (dtGroupBy !== "product") return;   // switched away while loading
+  if (apiOk(res)) {
+    dtProducts = (res.data?.data || []).map((r) => ({ id: r.id, name: r.name__v || r.id }));
+    dtProductsState = "done";
+  } else {
+    dtProductsError = apiErr(res);
+    dtProductsState = "error";
+  }
+  renderDocTypeList();
+  if (dtProductsState === "done") countProducts();
+}
+
+function filteredProducts() {
+  const f = dtProdFilter.trim().toLowerCase();
+  return f ? dtProducts.filter((p) => p.name.toLowerCase().includes(f)) : dtProducts;
+}
+
+function countProducts() {
+  const todo = filteredProducts()
+    .map((p) => ({ id: pId(p.id), where: [`product__v = '${vqlStr(p.id)}'`] }))
+    .filter((it) => !dtDrillCount.has(it.id));
+  if (todo.length) drillCountBatch(todo);
+}
+
+function countProductTypes(p) {
+  const todo = docTypes
+    .filter((t) => t.name)
+    .map((t) => ({ id: ptId(p.id, t.name), where: [`product__v = '${vqlStr(p.id)}'`, `TONAME(type__v) = '${vqlStr(t.name)}'`] }))
+    .filter((it) => !dtDrillCount.has(it.id));
+  if (todo.length) drillCountBatch(todo);
+}
+
+function countProductTypeSubs(p, t) {
+  normalizeSubtypes(t);
+  const todo = (t.subtypes || [])
+    .filter((s) => s.name)
+    .map((s) => ({
+      id: ptsId(p.id, t.name, s.name),
+      where: [`product__v = '${vqlStr(p.id)}'`, `TONAME(type__v) = '${vqlStr(t.name)}'`, `TONAME(subtype__v) = '${vqlStr(s.name)}'`],
+    }))
+    .filter((it) => !dtDrillCount.has(it.id));
+  if (todo.length) drillCountBatch(todo);
+}
+
+function toggleProduct(p) {
+  if (prodExpanded.has(p.id)) { prodExpanded.delete(p.id); renderDocTypeList(); return; }
+  prodExpanded.add(p.id);
+  renderDocTypeList();
+  countProductTypes(p);   // one count per vault type, filtered by this product
+}
+
+async function toggleProductType(p, t) {
+  const key = `${p.id}|${t.name}`;
+  if (prodTypeExpanded.has(key)) { prodTypeExpanded.delete(key); renderDocTypeList(); return; }
+  prodTypeExpanded.add(key);
+  renderDocTypeList();
+  if (!t.checkedAt) await fetchDocType(t);   // needs the type's subtypes metadata
+  if (!prodTypeExpanded.has(key)) return;
+  renderDocTypeList();
+  countProductTypeSubs(p, t);
+}
+
+// Within a product, show only the types/subtypes that actually have documents;
+// the rest are noise. Rows order by count, biggest first.
+function renderProductChildren(p) {
+  let h = '<div class="dt-children">';
+  const typed = docTypes.filter((t) => t.name);
+  const counted = typed.filter((t) => (dtDrillCount.get(ptId(p.id, t.name)) || 0) > 0);
+  const pending = typed.some((t) => !dtDrillCount.has(ptId(p.id, t.name)) && !dtDrillErr.has(ptId(p.id, t.name)));
+  if (!counted.length) return h + `<div class="dt-drill-empty">${pending ? "Counting types…" : "No documents for this product"}</div></div>`;
+  counted.sort((a, b) => (dtDrillCount.get(ptId(p.id, b.name)) || 0) - (dtDrillCount.get(ptId(p.id, a.name)) || 0));
+  for (const t of counted) {
+    const tk = `${p.id}|${t.name}`;
+    const open = prodTypeExpanded.has(tk);
+    normalizeSubtypes(t);
+    const canTwist = !t.checkedAt || (t.subtypes?.length > 0) || open;
+    h += `<div class="dt-sub" data-ptype="${esc(t.name)}">`;
+    h += `<div class="dt-sub-row">`;
+    h += canTwist ? `<span class="dt-twist${open ? " open" : ""}">${DT_CARET}</span>` : '<span class="dt-twist leaf"></span>';
+    h += `<span class="dt-sub-label">${esc(t.label || t.name)}</span><span class="dt-tier">type</span>`;
+    h += drillCountCell(ptId(p.id, t.name));
+    h += `</div>`;
+    if (open) {
+      h += '<div class="dt-subchildren">';
+      const subs = (t.subtypes || []).filter((s) => s.name);
+      if (!t.checkedAt && !subs.length) h += '<div class="dt-drill-empty">Loading subtypes…</div>';
+      else if (!subs.length) h += '<div class="dt-drill-empty">No subtypes</div>';
+      else {
+        const sc = subs.filter((s) => (dtDrillCount.get(ptsId(p.id, t.name, s.name)) || 0) > 0);
+        const sp = subs.some((s) => !dtDrillCount.has(ptsId(p.id, t.name, s.name)) && !dtDrillErr.has(ptsId(p.id, t.name, s.name)));
+        if (!sc.length) h += `<div class="dt-drill-empty">${sp ? "Counting subtypes…" : "No documents in a subtype"}</div>`;
+        else {
+          sc.sort((a, b) => (dtDrillCount.get(ptsId(p.id, t.name, b.name)) || 0) - (dtDrillCount.get(ptsId(p.id, t.name, a.name)) || 0));
+          for (const s of sc) {
+            h += `<div class="dt-class-row"><span class="dt-twist leaf"></span>` +
+              `<span class="dt-sub-label">${esc(s.label || s.name)}</span><span class="dt-tier">sub</span>${drillCountCell(ptsId(p.id, t.name, s.name))}</div>`;
+          }
+        }
+      }
+      h += "</div>";
+    }
+    h += "</div>";
+  }
+  return h + "</div>";
+}
+
+function renderProductTree() {
+  if (dtProductsState === "error") {
+    dtTree.innerHTML = `<div class="dm-empty">Couldn't load products: ${esc(dtProductsError)}</div>`;
+    return;
+  }
+  if (dtProductsState !== "done" && !dtProducts.length) {
+    dtTree.innerHTML = '<div class="dt-drill-empty">Loading products…</div>';
+    return;
+  }
+  const list = filteredProducts();
+  if (!list.length) {
+    dtTree.innerHTML = `<div class="dt-drill-empty">${dtProducts.length ? "No products match." : "This vault has no products."}</div>`;
+    return;
+  }
+  let h = "";
+  for (const p of list) {
+    const open = prodExpanded.has(p.id);
+    h += `<div class="dt-node" data-prod="${esc(p.id)}">`;
+    h += `<div class="dt-node-header">`;
+    h += `<span class="dt-twist${open ? " open" : ""}">${DT_CARET}</span>`;
+    h += '<span class="dt-node-icon">&#128230;</span>';
+    h += `<span class="dt-node-label">${esc(p.name)}</span>`;
+    h += drillCountCell(pId(p.id));
+    h += `</div>`;
+    if (open) h += renderProductChildren(p);
+    h += `</div>`;
+  }
+  dtTree.innerHTML = h;
+}
+
 function renderDocTypeList() {
+  if (dtGroupBy === "product") return renderProductTree();
   // Most records first once counted (types not counted go last), A-Z for ties
   // and before any count. No toggle: one fixed order.
   const ordered = [...docTypes].sort(
@@ -5211,6 +5392,7 @@ function compactCount(n) {
 }
 
 dtTree.addEventListener("click", (e) => {
+  if (dtGroupBy === "product") { handleProductClick(e); return; }
   const node = e.target.closest(".dt-node");
   const type = node ? docTypes.find((t) => t.name === node.dataset.name) : null;
   if (!type) return;
@@ -5234,6 +5416,32 @@ dtTree.addEventListener("click", (e) => {
   dtSelected = type;
   showDocTypeFields(type);
   refreshDocType(type);
+});
+
+// Clicks in product mode: a product opens its types; a type opens its subtypes.
+function handleProductClick(e) {
+  const node = e.target.closest(".dt-node[data-prod]");
+  if (!node) return;
+  const p = dtProducts.find((x) => x.id === node.dataset.prod);
+  if (!p) return;
+  const typeRow = e.target.closest(".dt-sub[data-ptype]");
+  const twist = e.target.closest(".dt-twist:not(.leaf)");
+  if (typeRow) {
+    const t = docTypes.find((x) => x.name === typeRow.dataset.ptype);
+    if (t && (twist || e.target.closest(".dt-sub-row"))) toggleProductType(p, t);
+    return;
+  }
+  if (twist || e.target.closest(".dt-node-header")) toggleProduct(p);
+}
+
+// The group-by control and the product filter.
+for (const b of document.querySelectorAll("#dt-groupby .dt-sort-opt")) {
+  b.addEventListener("click", () => setGroupBy(b.dataset.gb));
+}
+$("#dt-prod-filter")?.addEventListener("input", (e) => {
+  dtProdFilter = e.target.value;
+  renderProductTree();
+  countProducts();   // count whatever the filter now shows
 });
 
 // ---- layout placement ------------------------------------------------------
