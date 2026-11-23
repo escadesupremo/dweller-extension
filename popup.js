@@ -153,7 +153,9 @@ function closeOverlay() {
 // or they get clipped by the resized iframe.
 if (!WINDOW_MODE) {
   const shell = document.querySelector(".shell");
-  const floatingPanels = [acDropdown, historyPopover, savedPopover];
+  // Query #saved-popover directly: its `savedPopover` const is declared far
+  // below, so naming it here would hit the temporal dead zone at load.
+  const floatingPanels = [acDropdown, historyPopover, $("#saved-popover")];
   let lastHeight = 0;
 
   const reportHeight = () => {
