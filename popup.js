@@ -2083,7 +2083,6 @@ wireSavedList(savedRailList);
 // it here. We offer a one-click query for it; the record id is sanitised before
 // it goes anywhere near a query.
 let pageRecord = null;
-let recordOfferDismissedId = null;
 
 const RECORD_DOC_FIELDS = [
   "id", "name__v", "type__v", "subtype__v", "classification__v", "lifecycle__v",
@@ -2100,9 +2099,6 @@ function validRecord(rec) {
   return false;
 }
 
-function recordOfferId(rec) {
-  return rec ? `${rec.kind}:${rec.object || ""}:${rec.id}` : null;
-}
 
 function buildRecordQuery(rec) {
   if (rec.kind === "document") {
@@ -2120,23 +2116,24 @@ function buildRecordQuery(rec) {
   return `SELECT ${fields.join(", ")}\nFROM ${rec.object}\nWHERE id = '${rec.id}'`;
 }
 
+// Show the "This record" pill (by History) only in the overlay, when a record
+// was detected on the page and we're connected. Its tooltip carries the record.
 function updateRecordOffer() {
-  const offer = document.getElementById("record-offer");
-  if (!offer) return;
-  const show = !WINDOW_MODE && pageRecord && state.sessionId
-    && recordOfferId(pageRecord) !== recordOfferDismissedId;
-  if (!show) { offer.classList.add("hidden"); return; }
-  const label = pageRecord.label
-    || (pageRecord.kind === "document" ? `Document ${pageRecord.id}` : `${pageRecord.object} record`);
-  document.getElementById("ro-name").textContent = label;
-  offer.classList.remove("hidden");
+  const chip = document.getElementById("record-chip");
+  if (!chip) return;
+  const show = !WINDOW_MODE && pageRecord && state.sessionId;
+  chip.classList.toggle("hidden", !show);
+  if (show) {
+    const label = pageRecord.label
+      || (pageRecord.kind === "document" ? `Document ${pageRecord.id}` : `${pageRecord.object} record`);
+    chip.title = `Query this record · ${label}`;
+  }
 }
 
 function queryPageRecord() {
   if (!pageRecord) return;
   activatePane("query");
   setQueryText(buildRecordQuery(pageRecord));
-  document.getElementById("record-offer")?.classList.add("hidden");
   runQuery();
 }
 
@@ -2147,11 +2144,7 @@ function initRecordOffer() {
     pageRecord = validRecord(e.data.record) ? e.data.record : null;
     updateRecordOffer();
   });
-  document.getElementById("ro-go")?.addEventListener("click", queryPageRecord);
-  document.getElementById("ro-dismiss")?.addEventListener("click", () => {
-    recordOfferDismissedId = recordOfferId(pageRecord);
-    document.getElementById("record-offer")?.classList.add("hidden");
-  });
+  document.getElementById("record-chip")?.addEventListener("click", queryPageRecord);
   // Now that we're listening, ask content.js for the current record.
   window.parent.postMessage({ type: "dweller-ready" }, "*");
 }
