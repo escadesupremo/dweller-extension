@@ -4995,6 +4995,17 @@ const dtClasses = new Map();      // `${type}|${sub}` -> { state, error, list:[{
 const subId = (type, sub) => `${type}|${sub}`;
 const classId = (type, sub, cls) => `${type}|${sub}|${cls}`;
 
+// Subtypes and classifications come back as {label, value} with no name — the
+// API name is the last segment of the value URL (…/subtypes/advertisement__c),
+// just as the type list derives its own name. Fill it in so every consumer can
+// read node.name.
+function docNodeName(x) {
+  return x.name || (String(x.value || x.link || "").split("/").pop()) || "";
+}
+function normalizeSubtypes(t) {
+  for (const s of t.subtypes || []) if (!s.name) s.name = docNodeName(s);
+}
+
 function drillCountCell(id) {
   if (dtDrillErr.has(id)) return '<span class="dt-type-count failed" title="count failed">!</span>';
   if (dtDrillCount.has(id)) {
@@ -5005,6 +5016,7 @@ function drillCountCell(id) {
 }
 
 function renderDrillChildren(t) {
+  normalizeSubtypes(t);
   const subs = t.subtypes || [];
   if (!t.checkedAt && !subs.length) return '<div class="dt-children"><div class="dt-drill-empty">Loading subtypes…</div></div>';
   if (!subs.length) return '<div class="dt-children"><div class="dt-drill-empty">No subtypes</div></div>';
@@ -5062,7 +5074,9 @@ async function drillCountBatch(items) {
 }
 
 function countSubtypes(t) {
+  normalizeSubtypes(t);
   const todo = (t.subtypes || [])
+    .filter((s) => s.name)
     .map((s) => ({
       id: subId(t.name, s.name),
       where: [`TONAME(type__v) = '${vqlStr(t.name)}'`, `TONAME(subtype__v) = '${vqlStr(s.name)}'`],
@@ -5083,7 +5097,7 @@ async function loadClasses(t, sub) {
   if (apiOk(res)) {
     dtClasses.set(key, {
       state: "done",
-      list: (res.data?.classifications || []).map((c) => ({ name: c.name, label: c.label, value: c.value })),
+      list: (res.data?.classifications || []).map((c) => ({ name: docNodeName(c), label: c.label, value: c.value })),
     });
   } else {
     dtClasses.set(key, { state: "error", error: apiErr(res), list: [] });
