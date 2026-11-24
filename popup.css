@@ -2103,30 +2103,8 @@ body.mode-window .dt-sort-opt { height: 22px; padding: 0 11px; font-size: 12px; 
   color: var(--text-hint);
 }
 
-/* Group documents by Type or Product; product mode gets a filter. */
+/* Group documents by Type or Product. */
 .dt-groupby { margin-left: 2px; }
-.dt-prod-filter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 6px 8px 2px;
-  padding: 5px 9px;
-  background: var(--field-bg);
-  border: .5px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-hint);
-}
-.dt-prod-filter.hidden { display: none; }
-.dt-prod-filter input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 12px;
-  color: var(--text);
-  outline: none;
-}
 
 .dt-node-header:hover {
   background: var(--bg);

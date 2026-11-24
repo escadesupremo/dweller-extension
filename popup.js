@@ -5506,7 +5506,6 @@ let dtGroupBy = "type";          // "type" | "product"
 let dtProducts = [];             // [{id, name}]
 let dtProductsState = "idle";    // idle | loading | done | error
 let dtProductsError = "";
-let dtProdFilter = "";
 const prodExpanded = new Set();      // product ids open
 const prodTypeExpanded = new Set();  // `${prodId}|${typeName}` open
 const P = "P";
@@ -5522,7 +5521,6 @@ function setGroupBy(gb) {
     b.classList.toggle("active", on);
     b.setAttribute("aria-pressed", String(on));
   }
-  document.getElementById("dt-prod-filter-wrap")?.classList.toggle("hidden", gb !== "product");
   renderDocTypeList();
   paintSync();
   if (gb === "product") ensureProducts();
@@ -5549,13 +5547,8 @@ async function ensureProducts() {
   if (dtProductsState === "done") countProducts();
 }
 
-function filteredProducts() {
-  const f = dtProdFilter.trim().toLowerCase();
-  return f ? dtProducts.filter((p) => p.name.toLowerCase().includes(f)) : dtProducts;
-}
-
 function countProducts() {
-  queueCounts(filteredProducts()
+  queueCounts(dtProducts
     .map((p) => ({ id: pId(p.id), where: [`product__v = '${vqlStr(p.id)}'`] })));
 }
 
@@ -5648,13 +5641,13 @@ function renderProductTree() {
   }
   // Most documents first once counted (products not counted go last), A-Z for
   // ties and before any count — the same order as the Type grouping.
-  const list = filteredProducts().slice().sort(
+  const list = dtProducts.slice().sort(
     (a, b) => (dtDrillCount.has(pId(b.id)) ? dtDrillCount.get(pId(b.id)) : -1)
       - (dtDrillCount.has(pId(a.id)) ? dtDrillCount.get(pId(a.id)) : -1)
       || a.name.localeCompare(b.name)
   );
   if (!list.length) {
-    dtTree.innerHTML = `<div class="dt-drill-empty">${dtProducts.length ? "No products match." : "This vault has no products."}</div>`;
+    dtTree.innerHTML = '<div class="dt-drill-empty">This vault has no products.</div>';
     return;
   }
   let h = "";
@@ -5794,15 +5787,10 @@ function handleProductClick(e) {
   if (twist || e.target.closest(".dt-node-header")) toggleProduct(p);
 }
 
-// The group-by control and the product filter.
+// The group-by control.
 for (const b of document.querySelectorAll("#dt-groupby .dt-sort-opt")) {
   b.addEventListener("click", () => setGroupBy(b.dataset.gb));
 }
-$("#dt-prod-filter")?.addEventListener("input", (e) => {
-  dtProdFilter = e.target.value;
-  renderProductTree();
-  countProducts();   // count whatever the filter now shows
-});
 
 // ---- layout placement ------------------------------------------------------
 // The doc info panel is built from section + sectionPosition, so a property with
