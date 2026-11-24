@@ -385,8 +385,8 @@ async function autoConnect(domain) {
   // model checks itself, and the types do when their tab is open.
   await loadDataModelForDomain(domain);
   await loadDocTypesForDomain(domain);
-  await loadAccessForDomain(domain);
-  await loadUnselForDomain(domain);
+  // Both are independent cache reads into their own maps — one wave, not two.
+  await Promise.all([loadAccessForDomain(domain), loadUnselForDomain(domain)]);
   syncModelList();
   syncAccess();
   if (dtTabActive()) onDocTypesShown();
@@ -489,7 +489,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (access?.denied && access.time && access.time !== accessTime) {
     accessMap = deserializeAccess(access.denied);
     accessTime = access.time;
-    accessHadRows = access.hadRows !== false;
     refreshAfterAccess();
   }
 });
@@ -2695,7 +2694,7 @@ dmRefresh.addEventListener("click", async () => {
   if (!state.sessionId || sync.modelListing) return;
   sync.fast = true;
   await takeSyncLease();
-  syncAccess(true);   // reload your field access alongside the model
+  syncAccess();   // reload your field access alongside the model
   await syncModelList(true);
   touchModelObjects([dmSelected, vqlShape(vqlInput.value).target]);
 });
@@ -2749,9 +2748,6 @@ function paintSync() {
 let accessMap = new Map();     // objLower -> Set(deniedFieldLower)
 let accessTime = null;
 let accessLoading = false;
-let accessError = null;
-let accessForced = false;
-let accessHadRows = false;     // the response carried permission rows at all
 
 function accessDenied(objName, fieldName) {
   if (!objName || !fieldName) return false;
@@ -2818,18 +2814,19 @@ function unknownSelectFields(errors) {
   return out;
 }
 
-// Rebuild a flat query with the named top-level SELECT fields removed. Returns
-// null when it can't safely do so (a subquery, SHOW, or nothing would change) —
-// the caller then just reports the error.
+// Remove the named top-level SELECT fields from a query, splicing the original
+// text (so the user's casing, spacing and line breaks survive) rather than
+// rebuilding from a normalized parse. Returns null when nothing would change or
+// there's no SELECT…FROM span (e.g. SHOW). Top-level commas only, so a field
+// inside a subquery is left alone.
 function stripSelectFields(query, names) {
-  const shape = vqlShape(query);
-  if (!shape.target || shape.show || shape.subqueries.length) return null;
+  const span = vqlSelectListSpan(query);
+  if (!span) return null;
   const rm = new Set(names.map((s) => String(s).toLowerCase()));
-  const kept = shape.select.filter((s) => !rm.has(s));
-  if (!kept.length || kept.length === shape.select.length) return null;
-  const fromAt = query.search(/\bfrom\b/i);
-  if (fromAt < 0) return null;
-  return `SELECT ${kept.join(", ")}\n${query.slice(fromAt)}`;
+  const items = vqlListItems(query, span);
+  const kept = items.filter((it) => !rm.has(it.text.trim().toLowerCase()));
+  if (!kept.length || kept.length === items.length) return null;
+  return query.slice(0, span.start) + kept.map((it) => it.text).join(",") + query.slice(span.end);
 }
 
 // name__v arrives as object.{obj}.object_actions and, for a field,
@@ -2861,7 +2858,7 @@ function parseAccessRows(rows) {
   if (!fieldRowsSeen && unmatched.length) {
     console.warn("[access] no field permission rows matched; sample names:", unmatched.slice(0, 5));
   }
-  return { denied, fieldRowsSeen };
+  return denied;
 }
 
 function serializeAccess(map) {
@@ -2878,34 +2875,25 @@ function deserializeAccess(obj) {
 async function loadAccessForDomain(domain) {
   accessMap = new Map();
   accessTime = null;
-  accessError = null;
-  accessForced = false;
-  accessHadRows = false;
   const entry = await readVaultCache("access", domain);
   if (entry && entry.denied) {
     accessMap = deserializeAccess(entry.denied);
     accessTime = entry.time || null;
-    accessHadRows = entry.hadRows !== false;
   }
 }
 
-async function syncAccess(force = false) {
+async function syncAccess() {
   if (!state.sessionId || accessLoading) return;
   const epoch = sync.epoch;
   const domain = state.domain;
   accessLoading = true;
-  accessError = null;
-  if (force) accessForced = true;
   try {
     const res = await apiCall("/objects/users/me/permissions");
     if (epoch !== sync.epoch || state.domain !== domain) return;
-    if (!apiOk(res)) { accessError = apiErr(res); return; }
-    const rows = res.data?.data || [];
-    const { denied } = parseAccessRows(rows);
-    accessMap = denied;
+    if (!apiOk(res)) return;
+    accessMap = parseAccessRows(res.data?.data || []);
     accessTime = Date.now();
-    accessHadRows = rows.length > 0;
-    await saveVaultCache("access", domain, { time: accessTime, denied: serializeAccess(denied), hadRows: accessHadRows });
+    await saveVaultCache("access", domain, { time: accessTime, denied: serializeAccess(denied) });
     refreshAfterAccess();
   } finally {
     accessLoading = false;
@@ -3845,10 +3833,6 @@ function fieldRanker(obj) {
     if (byFill) return byFill;
     return modelOrder.get(a.name) - modelOrder.get(b.name);
   };
-}
-
-function hasFieldStats(objName) {
-  return !!fieldStats[objName];
 }
 
 function scheduleFieldStats(objName) {
@@ -5646,10 +5630,9 @@ function renderProductTree() {
   }
   // Most documents first once counted (products not counted go last), A-Z for
   // ties and before any count — the same order as the Type grouping.
+  const count = (p) => dtDrillCount.get(pId(p.id)) ?? -1;
   const list = dtProducts.slice().sort(
-    (a, b) => (dtDrillCount.has(pId(b.id)) ? dtDrillCount.get(pId(b.id)) : -1)
-      - (dtDrillCount.has(pId(a.id)) ? dtDrillCount.get(pId(a.id)) : -1)
-      || a.name.localeCompare(b.name)
+    (a, b) => count(b) - count(a) || a.name.localeCompare(b.name)
   );
   if (!list.length) {
     dtTree.innerHTML = '<div class="dt-drill-empty">This vault has no products.</div>';
@@ -6545,49 +6528,46 @@ dtFields.addEventListener("input", (e) => {
 // ===================== API HELPER =====================
 const CONTEXT_LOST_RESULT = { success: false, error: "Dweller was updated — reload this page to reconnect." };
 
-async function apiCall(endpoint, method = "GET", body = null, headers = null, contentType = null) {
+// The one messaging boundary to the background: guards for a lost extension
+// context and turns any send failure into a result, so callers never see a
+// throw. apiCall/apiDownload just build their payload and note the burst.
+async function sendRuntime(msg) {
   if (contextLost || !contextAlive()) { handleContextLost(); return CONTEXT_LOST_RESULT; }
-  let res;
   try {
-    res = await chrome.runtime.sendMessage({
-      action: "apiCall",
-      domain: state.domain,
-      sessionId: state.sessionId,
-      version: state.apiVersion,
-      endpoint,
-      method,
-      body,
-      headers,
-      contentType,
-    });
+    const res = await chrome.runtime.sendMessage(msg);
+    noteBurst(res?.burst);
+    return res;
   } catch (e) {
     if (isContextLostError(e)) { handleContextLost(); return CONTEXT_LOST_RESULT; }
     return { success: false, error: e?.message || "Could not reach the extension." };
   }
-  noteBurst(res?.burst);
-  return res;
+}
+
+async function apiCall(endpoint, method = "GET", body = null, headers = null, contentType = null) {
+  return sendRuntime({
+    action: "apiCall",
+    domain: state.domain,
+    sessionId: state.sessionId,
+    version: state.apiVersion,
+    endpoint,
+    method,
+    body,
+    headers,
+    contentType,
+  });
 }
 
 // ---- API download (binary) --------------------------------------------------
 // The config report comes back as a ZIP, which runtime messages can't carry, so
 // background.js hands it over as base64.
 async function apiDownload(endpoint) {
-  if (contextLost || !contextAlive()) { handleContextLost(); return CONTEXT_LOST_RESULT; }
-  let res;
-  try {
-    res = await chrome.runtime.sendMessage({
-      action: "apiDownload",
-      domain: state.domain,
-      sessionId: state.sessionId,
-      version: state.apiVersion,
-      endpoint,
-    });
-  } catch (e) {
-    if (isContextLostError(e)) { handleContextLost(); return CONTEXT_LOST_RESULT; }
-    return { success: false, error: e?.message || "Could not reach the extension." };
-  }
-  noteBurst(res?.burst);
-  return res;
+  return sendRuntime({
+    action: "apiDownload",
+    domain: state.domain,
+    sessionId: state.sessionId,
+    version: state.apiVersion,
+    endpoint,
+  });
 }
 
 function base64ToBlob(b64, type) {
