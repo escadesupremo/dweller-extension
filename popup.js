@@ -516,6 +516,30 @@ async function loadDataModelForDomain(domain) {
   }
 }
 
+// When the extension is reloaded or updated, this page's existing overlay loses
+// its link to the extension and every chrome.* call throws "Extension context
+// invalidated". Catch it once, stop the background loop, and tell the user to
+// reload — instead of a wall of uncaught promise rejections.
+let contextLost = false;
+function contextAlive() {
+  try { return !!chrome.runtime?.id; } catch { return false; }
+}
+function isContextLostError(e) {
+  return /context invalidated|message port closed|receiving end does not exist/i.test(String(e?.message || e || ""));
+}
+function handleContextLost() {
+  if (contextLost) return;
+  contextLost = true;
+  try { sync.epoch++; sync.queue = []; sync.queued?.clear?.(); } catch {}
+  try { setStatus("disconnected", "Dweller was updated — reload this page to reconnect."); } catch {}
+}
+addEventListener("unhandledrejection", (e) => {
+  if (isContextLostError(e?.reason)) { handleContextLost(); e.preventDefault(); }
+});
+addEventListener("error", (e) => {
+  if (isContextLostError(e?.error || e?.message)) { handleContextLost(); e.preventDefault(); }
+});
+
 function setStatus(type, text) {
   statusPill.className = `status-pill ${type}`;
   // Connected collapses to a bare dot in the overlay, so the message has to
@@ -2279,20 +2303,30 @@ function ageText(ts) {
 // One view per vault does the background filling: the panel and the full
 // window share what they fetch through storage, so two would only double it.
 async function holdSyncLease() {
-  if (!state.domain) return false;
-  const key = `syncLease:${state.domain}`;
-  const now = Date.now();
-  const cur = (await chrome.storage.local.get(key))[key];
-  if (cur && cur.id !== VIEW_ID && cur.until > now) return false;
-  // Still ours for a while: renewing on every call would write storage several
-  // times a second during a refresh.
-  if (cur?.id === VIEW_ID && cur.until - now > SYNC_LEASE_MS / 2) return true;
-  await chrome.storage.local.set({ [key]: { id: VIEW_ID, until: now + SYNC_LEASE_MS } });
-  return true;
+  if (!state.domain || contextLost || !contextAlive()) return false;
+  try {
+    const key = `syncLease:${state.domain}`;
+    const now = Date.now();
+    const cur = (await chrome.storage.local.get(key))[key];
+    if (cur && cur.id !== VIEW_ID && cur.until > now) return false;
+    // Still ours for a while: renewing on every call would write storage several
+    // times a second during a refresh.
+    if (cur?.id === VIEW_ID && cur.until - now > SYNC_LEASE_MS / 2) return true;
+    await chrome.storage.local.set({ [key]: { id: VIEW_ID, until: now + SYNC_LEASE_MS } });
+    return true;
+  } catch (e) {
+    if (isContextLostError(e)) handleContextLost();
+    return false;
+  }
 }
 
 async function takeSyncLease() {
-  if (state.domain) await chrome.storage.local.set({ [`syncLease:${state.domain}`]: { id: VIEW_ID, until: Date.now() + SYNC_LEASE_MS } });
+  if (!state.domain || contextLost || !contextAlive()) return;
+  try {
+    await chrome.storage.local.set({ [`syncLease:${state.domain}`]: { id: VIEW_ID, until: Date.now() + SYNC_LEASE_MS } });
+  } catch (e) {
+    if (isContextLostError(e)) handleContextLost();
+  }
 }
 
 function resetSync() {
@@ -6543,18 +6577,27 @@ dtFields.addEventListener("input", (e) => {
 });
 
 // ===================== API HELPER =====================
+const CONTEXT_LOST_RESULT = { success: false, error: "Dweller was updated — reload this page to reconnect." };
+
 async function apiCall(endpoint, method = "GET", body = null, headers = null, contentType = null) {
-  const res = await chrome.runtime.sendMessage({
-    action: "apiCall",
-    domain: state.domain,
-    sessionId: state.sessionId,
-    version: state.apiVersion,
-    endpoint,
-    method,
-    body,
-    headers,
-    contentType,
-  });
+  if (contextLost || !contextAlive()) { handleContextLost(); return CONTEXT_LOST_RESULT; }
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({
+      action: "apiCall",
+      domain: state.domain,
+      sessionId: state.sessionId,
+      version: state.apiVersion,
+      endpoint,
+      method,
+      body,
+      headers,
+      contentType,
+    });
+  } catch (e) {
+    if (isContextLostError(e)) { handleContextLost(); return CONTEXT_LOST_RESULT; }
+    return { success: false, error: e?.message || "Could not reach the extension." };
+  }
   noteBurst(res?.burst);
   return res;
 }
@@ -6563,13 +6606,20 @@ async function apiCall(endpoint, method = "GET", body = null, headers = null, co
 // The config report comes back as a ZIP, which runtime messages can't carry, so
 // background.js hands it over as base64.
 async function apiDownload(endpoint) {
-  const res = await chrome.runtime.sendMessage({
-    action: "apiDownload",
-    domain: state.domain,
-    sessionId: state.sessionId,
-    version: state.apiVersion,
-    endpoint,
-  });
+  if (contextLost || !contextAlive()) { handleContextLost(); return CONTEXT_LOST_RESULT; }
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({
+      action: "apiDownload",
+      domain: state.domain,
+      sessionId: state.sessionId,
+      version: state.apiVersion,
+      endpoint,
+    });
+  } catch (e) {
+    if (isContextLostError(e)) { handleContextLost(); return CONTEXT_LOST_RESULT; }
+    return { success: false, error: e?.message || "Could not reach the extension." };
+  }
   noteBurst(res?.burst);
   return res;
 }
@@ -6666,7 +6716,7 @@ async function runConfigReport() {
     );
     const jobId = start?.data?.job_id;
     if (!apiOk(start) || start.data?.responseStatus !== "SUCCESS" || !jobId) {
-      console.warn("[config report] could not start", start);
+      console.warn("[config report] could not start:", apiErr(start) || "no job id");
       // Vault refused (usually no permission) — show why, but leave the control
       // in place. The report is permanently placed.
       reportError(start?.success === true
