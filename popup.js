@@ -39,6 +39,8 @@ const operatorBar = $("#operator-bar");
 const dmSync = $("#dm-sync");
 const dmRefresh = $("#dm-refresh");
 const dmSyncBar = $("#dm-sync-bar");
+const accessSync = $("#access-sync");
+const accessRefresh = $("#access-refresh");
 const dmPanel = $("#dm-panel");
 const dmEmptyState = $("#dm-empty-state");
 const dmCounts = $("#dm-counts");
@@ -385,7 +387,9 @@ async function autoConnect(domain) {
   // model checks itself, and the types do when their tab is open.
   await loadDataModelForDomain(domain);
   await loadDocTypesForDomain(domain);
+  await loadAccessForDomain(domain);
   syncModelList();
+  syncAccess();
   if (dtTabActive()) onDocTypesShown();
 }
 
@@ -398,7 +402,7 @@ async function autoConnect(domain) {
 // fallback kept only the current vault and erased the rest. The manifest asks
 // for unlimitedStorage, so a save that fails now is a real failure and is
 // reported, never "solved" by deleting another vault's data.
-const VAULT_CACHE_KEYS = { dataModels: "dataModel", docTypeCache: "docTypes", fieldStats: "fieldStats" };
+const VAULT_CACHE_KEYS = { dataModels: "dataModel", docTypeCache: "docTypes", fieldStats: "fieldStats", access: "access" };
 
 function vaultCacheKey(kind, domain) {
   return `${VAULT_CACHE_KEYS[kind]}:${domain}`;
@@ -480,6 +484,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
       paintSync();
       if (dtSelected) showDocTypeFields(dtSelected);
     }
+  }
+  // Another view reloaded this vault's field access: take it.
+  const access = changes[vaultCacheKey("access", state.domain)]?.newValue;
+  if (access?.denied && access.time && access.time !== accessTime) {
+    accessMap = deserializeAccess(access.denied);
+    accessTime = access.time;
+    accessHadRows = access.hadRows !== false;
+    refreshAfterAccess();
+    paintAccessSync();
   }
 });
 
@@ -2665,6 +2678,137 @@ dmEmptyState.addEventListener("click", (e) => {
 function paintSync() {
   paintModelSync();
   paintTypesSync();
+  paintAccessSync();
+}
+
+// ===================== PER-USER FIELD ACCESS =====================
+// Vault's /objects/users/me/permissions says which object fields THIS user can
+// read. We load it per vault (cached and reloadable, like the data model) and
+// hide the fields a user can't read from autocomplete and "insert all fields",
+// so a query is never built with a field Vault would refuse. Config metadata
+// lists every field regardless of who's asking; this is the per-user truth.
+let accessMap = new Map();     // objLower -> Set(deniedFieldLower)
+let accessTime = null;
+let accessLoading = false;
+let accessError = null;
+let accessForced = false;
+let accessHadRows = false;     // the response carried permission rows at all
+
+function accessDenied(objName, fieldName) {
+  if (!objName || !fieldName) return false;
+  const set = accessMap.get(String(objName).toLowerCase());
+  return !!set && set.has(String(fieldName).toLowerCase());
+}
+
+// name__v arrives as object.{obj}.object_actions and, for a field,
+// object.{obj}.field.{field}.field_actions (some vaults drop the literal
+// "field." segment). We record only read:false FIELD rows — a field we never
+// hear about stays visible, so a name format we don't recognise hides nothing
+// rather than hiding everything.
+const ACCESS_FIELD_RE = /^object\.([^.]+)\.(?:field\.)?([^.]+)\.field_actions$/i;
+function parseAccessRows(rows) {
+  const denied = new Map();
+  let fieldRowsSeen = 0;
+  const unmatched = [];
+  for (const row of rows || []) {
+    const name = String(row?.name__v || "");
+    if (!name.startsWith("object.")) continue;
+    if (/\.object_actions$/i.test(name)) continue;
+    const m = ACCESS_FIELD_RE.exec(name);
+    if (!m) { unmatched.push(name); continue; }
+    fieldRowsSeen++;
+    if (row?.permissions?.read === false) {
+      const obj = m[1].toLowerCase();
+      if (!denied.has(obj)) denied.set(obj, new Set());
+      denied.get(obj).add(m[2].toLowerCase());
+    }
+  }
+  // Vault sent object-field rows but none matched: the field-name format
+  // differs from what we expect. Say so loudly so it gets fixed, rather than
+  // silently filtering nothing.
+  if (!fieldRowsSeen && unmatched.length) {
+    console.warn("[access] no field permission rows matched; sample names:", unmatched.slice(0, 5));
+  }
+  return { denied, fieldRowsSeen };
+}
+
+function serializeAccess(map) {
+  const out = {};
+  for (const [obj, set] of map) out[obj] = [...set];
+  return out;
+}
+function deserializeAccess(obj) {
+  const map = new Map();
+  for (const [k, arr] of Object.entries(obj || {})) map.set(k, new Set(arr));
+  return map;
+}
+
+async function loadAccessForDomain(domain) {
+  accessMap = new Map();
+  accessTime = null;
+  accessError = null;
+  accessForced = false;
+  accessHadRows = false;
+  const entry = await readVaultCache("access", domain);
+  if (entry && entry.denied) {
+    accessMap = deserializeAccess(entry.denied);
+    accessTime = entry.time || null;
+    accessHadRows = entry.hadRows !== false;
+  }
+  paintAccessSync();
+}
+
+async function syncAccess(force = false) {
+  if (!state.sessionId || accessLoading) return;
+  const epoch = sync.epoch;
+  const domain = state.domain;
+  accessLoading = true;
+  accessError = null;
+  if (force) accessForced = true;
+  paintAccessSync();
+  try {
+    const res = await apiCall("/objects/users/me/permissions");
+    if (epoch !== sync.epoch || state.domain !== domain) return;
+    if (!apiOk(res)) { accessError = apiErr(res); return; }
+    const rows = res.data?.data || [];
+    const { denied } = parseAccessRows(rows);
+    accessMap = denied;
+    accessTime = Date.now();
+    accessHadRows = rows.length > 0;
+    await saveVaultCache("access", domain, { time: accessTime, denied: serializeAccess(denied), hadRows: accessHadRows });
+    refreshAfterAccess();
+  } finally {
+    accessLoading = false;
+    if (epoch === sync.epoch) paintAccessSync();
+  }
+}
+
+// The field lists just changed: repaint the data model tree if it's showing.
+function refreshAfterAccess() {
+  if (state.dataModel) renderDataModelTree(dmSearch.value.trim().toLowerCase());
+}
+
+function paintAccessSync() {
+  if (!accessSync) return;
+  let text = "";
+  if (!state.sessionId) text = "";
+  else if (accessError) text = `couldn't load access: ${accessError}`;
+  else if (accessLoading) text = accessForced ? "reloading your access…" : "loading your access…";
+  else if (accessTime) text = `loaded ${ageText(accessTime)}`;
+  accessSync.textContent = text;
+  accessSync.classList.toggle("error", !!accessError);
+  if (accessRefresh) {
+    accessRefresh.disabled = !state.sessionId;
+    accessRefresh.classList.toggle("spinning", !!state.sessionId && accessLoading);
+  }
+}
+
+if (accessRefresh) {
+  accessRefresh.addEventListener("click", async () => {
+    if (!state.sessionId || accessLoading) return;
+    await takeSyncLease();
+    await syncAccess(true);
+  });
 }
 
 function extractFields(res) {
@@ -3140,14 +3284,16 @@ const DM_SEL = '<span class="dm-row-sel" title="Add to SELECT">+ SELECT</span>';
 // a search hit belongs to.
 function fieldRowHtml(f, objName, filter, inObj = "") {
   const type = wbTypeLabel(f.type);
-  const tip = [f.label && f.label !== f.name ? f.label : "", type, f.required ? "required" : ""]
+  const denied = accessDenied(objName, f.name);
+  const tip = [f.label && f.label !== f.name ? f.label : "", type, f.required ? "required" : "", denied ? "you don't have read access" : ""]
     .filter(Boolean)
     .join(" · ");
   const labelHit =
     filter && f.label && !f.name.toLowerCase().includes(filter) && f.label.toLowerCase().includes(filter);
   return (
-    `<button type="button" class="dm-row${labelHit ? " label-hit" : ""}" data-field="${esc(f.name)}" ` +
+    `<button type="button" class="dm-row${labelHit ? " label-hit" : ""}${denied ? " dm-row-denied" : ""}" data-field="${esc(f.name)}" ` +
     `data-obj="${esc(objName)}" title="${esc(`${tip}. Click to insert, ⇧-click to add to SELECT.`)}">` +
+    (denied ? '<span class="dm-row-lock" aria-label="no read access">🔒</span>' : "") +
     `<span class="dm-row-label">${highlight(f.label || f.name, filter)}</span>` +
     `<span class="dm-row-name">${highlight(f.name, filter)}</span>` +
     (f.required ? '<span class="dm-row-req" aria-label="required">*</span>' : "") +
@@ -3342,10 +3488,15 @@ function renderDataModelTree(filter) {
     const ranked = [...obj.fields].sort(fieldRanker(obj));
     html = ranked.map((f) => fieldRowHtml(f, obj.name, "")).join("") ||
       `<div class="dm-empty">No fields known for ${esc(obj.name)}.</div>`;
-    dmInsertAll.textContent = `Insert all ${obj.fields.length.toLocaleString()} fields`;
-    dmInsertAll.title = `Replace the query with SELECT of every field FROM ${obj.name}`;
-    dmInsertAll.classList.toggle("hidden", !obj.fields.length);
-    dmShowing.textContent = "";
+    // "Insert all fields" inserts only the readable ones; count those.
+    const readable = obj.fields.filter((f) => !accessDenied(obj.name, f.name)).length;
+    const hidden = obj.fields.length - readable;
+    dmInsertAll.textContent = `Insert all ${readable.toLocaleString()} fields`;
+    dmInsertAll.title = hidden
+      ? `Replace the query with SELECT of every field FROM ${obj.name} you can read (${hidden} hidden — no read access)`
+      : `Replace the query with SELECT of every field FROM ${obj.name}`;
+    dmInsertAll.classList.toggle("hidden", !readable);
+    dmShowing.textContent = hidden ? `${hidden} field${hidden === 1 ? "" : "s"} hidden — no read access` : "";
   } else {
     html = sortedRelationships(obj)
       .filter((r) => r.dir === dmView)
@@ -3407,7 +3558,11 @@ function highlight(text, filter) {
 function insertSelectTemplate(objName) {
   const obj = modelObject(objName);
   if (!obj || !obj.fields.length) return;
-  const fieldList = obj.fields.map((f) => `    ${f.name}`).join(",\n");
+  // Only the fields this user can read — a SELECT that named one they can't
+  // would make Vault refuse the whole query.
+  const readable = obj.fields.filter((f) => !accessDenied(obj.name, f.name));
+  if (!readable.length) return;
+  const fieldList = readable.map((f) => `    ${f.name}`).join(",\n");
   insertIntoQuery(`SELECT\n${fieldList}\nFROM ${obj.name}`, true);
 }
 
@@ -3860,14 +4015,14 @@ function showAutocomplete() {
     if (r && needsLookup(r.target)) want.push(r.target);
     const target = (r ? knownObject(r.target) : null) || (obj ? null : relationshipTargetAnywhere(relName, "out"));
     if (target) {
-      const matched = target.fields.filter((f) => f.name.toLowerCase().includes(rest));
+      const matched = target.fields.filter((f) => f.name.toLowerCase().includes(rest) && !accessDenied(target.name, f.name));
       matched.sort(fieldRanker(target));
       for (const f of matched) push(fieldItem(f, `${raw.slice(0, dot + 1)}${f.name}`));
     }
   } else {
     if (obj) {
       scheduleFieldStats(obj.name);
-      const matched = obj.fields.filter((f) => f.name.toLowerCase().includes(word));
+      const matched = obj.fields.filter((f) => f.name.toLowerCase().includes(word) && !accessDenied(obj.name, f.name));
       matched.sort(fieldRanker(obj));
       for (const f of matched.slice(0, 10)) push(fieldItem(f));
       for (const r of objectRelationships(obj, "out")) if (r.name.toLowerCase().includes(word)) push(lookupItem(r));

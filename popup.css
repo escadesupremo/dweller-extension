@@ -1234,7 +1234,20 @@ textarea::placeholder { color: var(--text-faint); }
 .dm-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Your-access line: its own row under the model's title/age line. */
+.access-line {
+  flex-basis: 100%;
+  margin-left: 0;
+  gap: 6px;
+}
+.access-label {
+  font-size: 10.5px;
+  color: var(--text-hint);
+  white-space: nowrap;
 }
 
 /* ---- Loading by itself: how old, and ↻ to refresh now ---- */
@@ -1542,6 +1555,18 @@ textarea::placeholder { color: var(--text-faint); }
   font-size: 11px;
   color: var(--red);
 }
+
+/* A field this user can't read: shown, but struck through and dimmed, and kept
+   out of autocomplete and "insert all fields". */
+.dm-row-lock {
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 1;
+  opacity: .8;
+}
+.dm-row-denied { opacity: .55; }
+.dm-row-denied .dm-row-label,
+.dm-row-denied .dm-row-name { text-decoration: line-through; }
 
 .dm-row-in {
   flex-shrink: 0;

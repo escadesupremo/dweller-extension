@@ -342,6 +342,14 @@
               <button id="dm-refresh" class="sync-refresh" type="button" title="Reload Data Model" aria-label="Refresh the data model">&#8635;</button>
             </span>
             <div id="dm-sync-bar" class="sync-bar hidden" aria-hidden="true"><i></i></div>
+            <!-- Which fields you can read on this vault: hides fields you have no
+                 access to from autocomplete and "insert all fields". Loads and
+                 refreshes by itself, ↻ forces it. Its own line below the model's. -->
+            <span class="sync-line access-line">
+              <span class="access-label">Your access</span>
+              <span id="access-sync" class="sync-text"></span>
+              <button id="access-refresh" class="sync-refresh" type="button" title="Reload Your Field Access" aria-label="Reload your field access">&#8635;</button>
+            </span>
           </div>
 
           <div class="dm-search-field">
