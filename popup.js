@@ -2700,6 +2700,17 @@ function accessDenied(objName, fieldName) {
   return !!set && set.has(String(fieldName).toLowerCase());
 }
 
+// A field a VQL SELECT can actually take: Vault marks it queryable (many __sys
+// and file-metadata fields are not), it has a plain VQL name, and this user can
+// read it. "Insert all fields" and autocomplete use this so they never build a
+// query Vault would reject — a non-queryable field gives INVALID_DATA, a
+// no-read field an access error.
+function fieldSelectable(objName, f) {
+  return f.queryable !== false
+    && /^[a-z_][a-z0-9_]*$/i.test(f.name || "")
+    && !accessDenied(objName, f.name);
+}
+
 // name__v arrives as object.{obj}.object_actions and, for a field,
 // object.{obj}.field.{field}.field_actions (some vaults drop the literal
 // "field." segment). We record only read:false FIELD rows — a field we never
@@ -3285,13 +3296,15 @@ const DM_SEL = '<span class="dm-row-sel" title="Add to SELECT">+ SELECT</span>';
 function fieldRowHtml(f, objName, filter, inObj = "") {
   const type = wbTypeLabel(f.type);
   const denied = accessDenied(objName, f.name);
-  const tip = [f.label && f.label !== f.name ? f.label : "", type, f.required ? "required" : "", denied ? "you don't have read access" : ""]
+  const noQuery = !denied && f.queryable === false;
+  const why = denied ? "you don't have read access" : noQuery ? "not queryable in VQL" : "";
+  const tip = [f.label && f.label !== f.name ? f.label : "", type, f.required ? "required" : "", why]
     .filter(Boolean)
     .join(" · ");
   const labelHit =
     filter && f.label && !f.name.toLowerCase().includes(filter) && f.label.toLowerCase().includes(filter);
   return (
-    `<button type="button" class="dm-row${labelHit ? " label-hit" : ""}${denied ? " dm-row-denied" : ""}" data-field="${esc(f.name)}" ` +
+    `<button type="button" class="dm-row${labelHit ? " label-hit" : ""}${denied ? " dm-row-denied" : ""}${noQuery ? " dm-row-noquery" : ""}" data-field="${esc(f.name)}" ` +
     `data-obj="${esc(objName)}" title="${esc(`${tip}. Click to insert, ⇧-click to add to SELECT.`)}">` +
     (denied ? '<span class="dm-row-lock" aria-label="no read access">🔒</span>' : "") +
     `<span class="dm-row-label">${highlight(f.label || f.name, filter)}</span>` +
@@ -3488,15 +3501,21 @@ function renderDataModelTree(filter) {
     const ranked = [...obj.fields].sort(fieldRanker(obj));
     html = ranked.map((f) => fieldRowHtml(f, obj.name, "")).join("") ||
       `<div class="dm-empty">No fields known for ${esc(obj.name)}.</div>`;
-    // "Insert all fields" inserts only the readable ones; count those.
-    const readable = obj.fields.filter((f) => !accessDenied(obj.name, f.name)).length;
-    const hidden = obj.fields.length - readable;
-    dmInsertAll.textContent = `Insert all ${readable.toLocaleString()} fields`;
+    // "Insert all fields" inserts only the selectable ones; count those, and
+    // explain the gap (fields that aren't queryable, or this user can't read).
+    const selectable = obj.fields.filter((f) => fieldSelectable(obj.name, f)).length;
+    const noRead = obj.fields.filter((f) => accessDenied(obj.name, f.name)).length;
+    const hidden = obj.fields.length - selectable;
+    const notQueryable = hidden - noRead;
+    dmInsertAll.textContent = `Insert all ${selectable.toLocaleString()} fields`;
     dmInsertAll.title = hidden
-      ? `Replace the query with SELECT of every field FROM ${obj.name} you can read (${hidden} hidden — no read access)`
+      ? `Replace the query with SELECT of every queryable field FROM ${obj.name} you can read (${hidden} left out)`
       : `Replace the query with SELECT of every field FROM ${obj.name}`;
-    dmInsertAll.classList.toggle("hidden", !readable);
-    dmShowing.textContent = hidden ? `${hidden} field${hidden === 1 ? "" : "s"} hidden — no read access` : "";
+    dmInsertAll.classList.toggle("hidden", !selectable);
+    const reasons = [];
+    if (notQueryable > 0) reasons.push(`${notQueryable} not queryable`);
+    if (noRead > 0) reasons.push(`${noRead} no read access`);
+    dmShowing.textContent = hidden ? `${hidden} field${hidden === 1 ? "" : "s"} left out — ${reasons.join(", ")}` : "";
   } else {
     html = sortedRelationships(obj)
       .filter((r) => r.dir === dmView)
@@ -3558,11 +3577,11 @@ function highlight(text, filter) {
 function insertSelectTemplate(objName) {
   const obj = modelObject(objName);
   if (!obj || !obj.fields.length) return;
-  // Only the fields this user can read — a SELECT that named one they can't
-  // would make Vault refuse the whole query.
-  const readable = obj.fields.filter((f) => !accessDenied(obj.name, f.name));
-  if (!readable.length) return;
-  const fieldList = readable.map((f) => `    ${f.name}`).join(",\n");
+  // Only the fields a SELECT can take: queryable, and ones this user can read.
+  // A non-queryable or no-read field would make Vault refuse the whole query.
+  const selectable = obj.fields.filter((f) => fieldSelectable(obj.name, f));
+  if (!selectable.length) return;
+  const fieldList = selectable.map((f) => `    ${f.name}`).join(",\n");
   insertIntoQuery(`SELECT\n${fieldList}\nFROM ${obj.name}`, true);
 }
 
@@ -4015,14 +4034,14 @@ function showAutocomplete() {
     if (r && needsLookup(r.target)) want.push(r.target);
     const target = (r ? knownObject(r.target) : null) || (obj ? null : relationshipTargetAnywhere(relName, "out"));
     if (target) {
-      const matched = target.fields.filter((f) => f.name.toLowerCase().includes(rest) && !accessDenied(target.name, f.name));
+      const matched = target.fields.filter((f) => f.name.toLowerCase().includes(rest) && fieldSelectable(target.name, f));
       matched.sort(fieldRanker(target));
       for (const f of matched) push(fieldItem(f, `${raw.slice(0, dot + 1)}${f.name}`));
     }
   } else {
     if (obj) {
       scheduleFieldStats(obj.name);
-      const matched = obj.fields.filter((f) => f.name.toLowerCase().includes(word) && !accessDenied(obj.name, f.name));
+      const matched = obj.fields.filter((f) => f.name.toLowerCase().includes(word) && fieldSelectable(obj.name, f));
       matched.sort(fieldRanker(obj));
       for (const f of matched.slice(0, 10)) push(fieldItem(f));
       for (const r of objectRelationships(obj, "out")) if (r.name.toLowerCase().includes(word)) push(lookupItem(r));
