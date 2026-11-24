@@ -388,6 +388,7 @@ async function autoConnect(domain) {
   await loadDataModelForDomain(domain);
   await loadDocTypesForDomain(domain);
   await loadAccessForDomain(domain);
+  await loadUnselForDomain(domain);
   syncModelList();
   syncAccess();
   if (dtTabActive()) onDocTypesShown();
@@ -402,7 +403,7 @@ async function autoConnect(domain) {
 // fallback kept only the current vault and erased the rest. The manifest asks
 // for unlimitedStorage, so a save that fails now is a real failure and is
 // reported, never "solved" by deleting another vault's data.
-const VAULT_CACHE_KEYS = { dataModels: "dataModel", docTypeCache: "docTypes", fieldStats: "fieldStats", access: "access" };
+const VAULT_CACHE_KEYS = { dataModels: "dataModel", docTypeCache: "docTypes", fieldStats: "fieldStats", access: "access", unsel: "unsel" };
 
 function vaultCacheKey(kind, domain) {
   return `${VAULT_CACHE_KEYS[kind]}:${domain}`;
@@ -1073,13 +1074,20 @@ function extractVqlTopLimit(q) {
   return cap;
 }
 
-async function runQuery() {
+// How many times one Run may auto-strip fields Vault refuses before giving up.
+const QUERY_HEAL_MAX = 25;
+let queryHealCount = 0;
+let healedOut = [];
+
+async function runQuery(isHeal = false) {
   const raw = vqlInput.value.trim();
   if (!raw) return;
   if (!state.sessionId) {
     showError("Not connected. Please connect first.");
     return;
   }
+  // A fresh Run (not a heal retry) starts the heal counter and note over.
+  if (!isHeal) { queryHealCount = 0; healedOut = []; }
 
   hideAc();
   runBtn.disabled = true;
@@ -1196,6 +1204,22 @@ async function runQuery() {
 
   const firstData = firstResult.data;
   if (firstData.responseStatus === "FAILURE") {
+    // Vault refused a field in the SELECT (not queryable here, whatever the
+    // metadata says): learn it so it drops out of autocomplete and "insert all
+    // fields", strip it, and run the cleaned query again.
+    const bad = unknownSelectFields(firstData.errors);
+    if (bad.length && queryHealCount < QUERY_HEAL_MAX) {
+      if (shape.target) await learnUnselectable(shape.target, bad);
+      const cleaned = stripSelectFields(raw, bad);
+      if (cleaned) {
+        queryHealCount++;
+        for (const b of bad) if (!healedOut.includes(b)) healedOut.push(b);
+        setQueryText(cleaned);
+        resetButton();
+        runQuery(true);
+        return;
+      }
+    }
     const errMsg = firstData.errors?.map((e) => `${e.type}: ${e.message}`).join("\n") || "Query failed";
     showError(errMsg + vqlLimitAdvice(baseQuery));
     addToHistory(raw, false);
@@ -1335,6 +1359,10 @@ async function runQuery() {
   queryTime.textContent = completed > 1
     ? `${elapsed}s · ${completed} pages`
     : `${elapsed}s`;
+  if (healedOut.length) {
+    queryTime.textContent += ` · left out ${healedOut.length} field${healedOut.length > 1 ? "s" : ""} Vault won’t query`;
+    queryTime.title = `Not queryable here, so removed from the query: ${healedOut.join(", ")}`;
+  }
 
   resetButton();
 
@@ -2707,9 +2735,70 @@ function accessDenied(objName, fieldName) {
 // no-read field an access error.
 function fieldSelectable(objName, f) {
   return f.queryable !== false
-    && f.hidden !== true
     && /^[a-z_][a-z0-9_]*$/i.test(f.name || "")
-    && !accessDenied(objName, f.name);
+    && !accessDenied(objName, f.name)
+    && !unselectable(objName, f.name);
+}
+
+// Veeva's document metadata lists properties that aren't all VQL-selectable, and
+// the queryable/hidden flags don't mark every one (e.g. template_document__v is
+// queryable and not hidden, yet a SELECT of it gives INVALID_DATA). So we also
+// learn the ones Vault refuses in a 'select fields' error and remember them per
+// vault — the only reliable source of truth is Vault's own rejection.
+let unselMap = new Map();   // objLower -> Set(fieldLower)
+
+function unselectable(objName, fieldName) {
+  if (!objName || !fieldName) return false;
+  const s = unselMap.get(String(objName).toLowerCase());
+  return !!s && s.has(String(fieldName).toLowerCase());
+}
+
+async function loadUnselForDomain(domain) {
+  unselMap = new Map();
+  const entry = await readVaultCache("unsel", domain);
+  if (entry && entry.objs) unselMap = deserializeAccess(entry.objs);
+}
+
+async function learnUnselectable(objName, fields) {
+  if (!objName || !fields.length) return;
+  const key = String(objName).toLowerCase();
+  if (!unselMap.has(key)) unselMap.set(key, new Set());
+  const set = unselMap.get(key);
+  let added = false;
+  for (const f of fields) {
+    const l = String(f).toLowerCase();
+    if (!set.has(l)) { set.add(l); added = true; }
+  }
+  if (added && state.domain) await saveVaultCache("unsel", state.domain, { objs: serializeAccess(unselMap) });
+}
+
+// Field names Vault names when it refuses a SELECT field. Documents are the
+// usual case: type-specific fields (language__v, legacy_document_number__c…)
+// aren't queryable on the base documents object even with a type filter, and
+// Vault says "Unknown property 'x'" or "Unknown field 'x' in 'select fields'".
+function unknownSelectFields(errors) {
+  const out = [];
+  const re = /unknown (?:property|field) '([^']+)' in 'select fields'/gi;
+  for (const e of errors || []) {
+    const msg = String(e?.message || "");
+    let m;
+    while ((m = re.exec(msg))) out.push(m[1]);
+  }
+  return out;
+}
+
+// Rebuild a flat query with the named top-level SELECT fields removed. Returns
+// null when it can't safely do so (a subquery, SHOW, or nothing would change) —
+// the caller then just reports the error.
+function stripSelectFields(query, names) {
+  const shape = vqlShape(query);
+  if (!shape.target || shape.show || shape.subqueries.length) return null;
+  const rm = new Set(names.map((s) => String(s).toLowerCase()));
+  const kept = shape.select.filter((s) => !rm.has(s));
+  if (!kept.length || kept.length === shape.select.length) return null;
+  const fromAt = query.search(/\bfrom\b/i);
+  if (fromAt < 0) return null;
+  return `SELECT ${kept.join(", ")}\n${query.slice(fromAt)}`;
 }
 
 // name__v arrives as object.{obj}.object_actions and, for a field,
@@ -2853,10 +2942,6 @@ function extractFields(res) {
     required: f.required || f.required__v || false,
     editable: f.editable || f.editable__v || false,
     queryable: f.queryable !== undefined ? f.queryable : true,
-    // Document system properties (link__sys, state_stage_id__sys…) come back
-    // hidden:true rather than queryable:false; a SELECT of one is refused with
-    // INVALID_DATA. This is the attribute dtQueryable already filters on.
-    hidden: f.hidden === true,
   }));
 }
 
@@ -3301,7 +3386,7 @@ const DM_SEL = '<span class="dm-row-sel" title="Add to SELECT">+ SELECT</span>';
 function fieldRowHtml(f, objName, filter, inObj = "") {
   const type = wbTypeLabel(f.type);
   const denied = accessDenied(objName, f.name);
-  const noQuery = !denied && (f.queryable === false || f.hidden === true);
+  const noQuery = !denied && (f.queryable === false || unselectable(objName, f.name));
   const why = denied ? "you don't have read access" : noQuery ? "not queryable in VQL" : "";
   const tip = [f.label && f.label !== f.name ? f.label : "", type, f.required ? "required" : "", why]
     .filter(Boolean)
@@ -5561,7 +5646,13 @@ function renderProductTree() {
     dtTree.innerHTML = '<div class="dt-drill-empty">Loading products…</div>';
     return;
   }
-  const list = filteredProducts();
+  // Most documents first once counted (products not counted go last), A-Z for
+  // ties and before any count — the same order as the Type grouping.
+  const list = filteredProducts().slice().sort(
+    (a, b) => (dtDrillCount.has(pId(b.id)) ? dtDrillCount.get(pId(b.id)) : -1)
+      - (dtDrillCount.has(pId(a.id)) ? dtDrillCount.get(pId(a.id)) : -1)
+      || a.name.localeCompare(b.name)
+  );
   if (!list.length) {
     dtTree.innerHTML = `<div class="dt-drill-empty">${dtProducts.length ? "No products match." : "This vault has no products."}</div>`;
     return;
