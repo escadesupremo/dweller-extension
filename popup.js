@@ -39,8 +39,8 @@ const operatorBar = $("#operator-bar");
 const dmSync = $("#dm-sync");
 const dmRefresh = $("#dm-refresh");
 const dmSyncBar = $("#dm-sync-bar");
-const accessSync = $("#access-sync");
-const accessRefresh = $("#access-refresh");
+const accessInd = $("#access-ind");
+const accessBadge = $("#access-badge");
 const dmPanel = $("#dm-panel");
 const dmEmptyState = $("#dm-empty-state");
 const dmCounts = $("#dm-counts");
@@ -2664,6 +2664,7 @@ dmRefresh.addEventListener("click", async () => {
   if (!state.sessionId || sync.modelListing) return;
   sync.fast = true;
   await takeSyncLease();
+  syncAccess(true);   // reload your field access alongside the model
   await syncModelList(true);
   touchModelObjects([dmSelected, vqlShape(vqlInput.value).target]);
 });
@@ -2889,27 +2890,31 @@ function refreshAfterAccess() {
   if (state.dataModel) renderDataModelTree(dmSearch.value.trim().toLowerCase());
 }
 
-function paintAccessSync() {
-  if (!accessSync) return;
-  let text = "";
-  if (!state.sessionId) text = "";
-  else if (accessError) text = `couldn't load access: ${accessError}`;
-  else if (accessLoading) text = accessForced ? "reloading your access…" : "loading your access…";
-  else if (accessTime) text = `loaded ${ageText(accessTime)}`;
-  accessSync.textContent = text;
-  accessSync.classList.toggle("error", !!accessError);
-  if (accessRefresh) {
-    accessRefresh.disabled = !state.sessionId;
-    accessRefresh.classList.toggle("spinning", !!state.sessionId && accessLoading);
-  }
+// Fields across this vault Vault says this user can't read.
+function accessDeniedCount() {
+  let n = 0;
+  for (const s of accessMap.values()) n += s.size;
+  return n;
 }
 
-if (accessRefresh) {
-  accessRefresh.addEventListener("click", async () => {
-    if (!state.sessionId || accessLoading) return;
-    await takeSyncLease();
-    await syncAccess(true);
-  });
+// A shield on the data-model line, shown only when field access actually hides
+// something (or failed to load). The ↻ there reloads access, so there's no
+// separate control. Full-access users see nothing.
+function paintAccessSync() {
+  if (!accessInd) return;
+  const denied = accessDeniedCount();
+  const show = !!state.sessionId && (denied > 0 || !!accessError);
+  accessInd.classList.toggle("hidden", !show);
+  if (!show) return;
+  accessInd.classList.toggle("error", !!accessError);
+  if (accessBadge) {
+    accessBadge.classList.toggle("hidden", denied <= 0);
+    accessBadge.textContent = denied > 0 ? `${denied.toLocaleString()} hidden` : "";
+  }
+  const age = accessTime ? ` · loaded ${ageText(accessTime)}` : "";
+  accessInd.title = accessError
+    ? `Couldn't load your field access: ${accessError}. Reload the data model to retry.`
+    : `${denied.toLocaleString()} field${denied === 1 ? "" : "s"} you can't read are hidden from autocomplete and “insert all fields”${age}. Reloads with the data model (↻).`;
 }
 
 function extractFields(res) {
