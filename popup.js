@@ -2707,6 +2707,7 @@ function accessDenied(objName, fieldName) {
 // no-read field an access error.
 function fieldSelectable(objName, f) {
   return f.queryable !== false
+    && f.hidden !== true
     && /^[a-z_][a-z0-9_]*$/i.test(f.name || "")
     && !accessDenied(objName, f.name);
 }
@@ -2852,6 +2853,10 @@ function extractFields(res) {
     required: f.required || f.required__v || false,
     editable: f.editable || f.editable__v || false,
     queryable: f.queryable !== undefined ? f.queryable : true,
+    // Document system properties (link__sys, state_stage_id__sys…) come back
+    // hidden:true rather than queryable:false; a SELECT of one is refused with
+    // INVALID_DATA. This is the attribute dtQueryable already filters on.
+    hidden: f.hidden === true,
   }));
 }
 
@@ -3296,7 +3301,7 @@ const DM_SEL = '<span class="dm-row-sel" title="Add to SELECT">+ SELECT</span>';
 function fieldRowHtml(f, objName, filter, inObj = "") {
   const type = wbTypeLabel(f.type);
   const denied = accessDenied(objName, f.name);
-  const noQuery = !denied && f.queryable === false;
+  const noQuery = !denied && (f.queryable === false || f.hidden === true);
   const why = denied ? "you don't have read access" : noQuery ? "not queryable in VQL" : "";
   const tip = [f.label && f.label !== f.name ? f.label : "", type, f.required ? "required" : "", why]
     .filter(Boolean)
