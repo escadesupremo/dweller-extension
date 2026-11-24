@@ -39,8 +39,6 @@ const operatorBar = $("#operator-bar");
 const dmSync = $("#dm-sync");
 const dmRefresh = $("#dm-refresh");
 const dmSyncBar = $("#dm-sync-bar");
-const accessInd = $("#access-ind");
-const accessBadge = $("#access-badge");
 const dmPanel = $("#dm-panel");
 const dmEmptyState = $("#dm-empty-state");
 const dmCounts = $("#dm-counts");
@@ -493,7 +491,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
     accessTime = access.time;
     accessHadRows = access.hadRows !== false;
     refreshAfterAccess();
-    paintAccessSync();
   }
 });
 
@@ -2741,7 +2738,6 @@ dmEmptyState.addEventListener("click", (e) => {
 function paintSync() {
   paintModelSync();
   paintTypesSync();
-  paintAccessSync();
 }
 
 // ===================== PER-USER FIELD ACCESS =====================
@@ -2891,7 +2887,6 @@ async function loadAccessForDomain(domain) {
     accessTime = entry.time || null;
     accessHadRows = entry.hadRows !== false;
   }
-  paintAccessSync();
 }
 
 async function syncAccess(force = false) {
@@ -2901,7 +2896,6 @@ async function syncAccess(force = false) {
   accessLoading = true;
   accessError = null;
   if (force) accessForced = true;
-  paintAccessSync();
   try {
     const res = await apiCall("/objects/users/me/permissions");
     if (epoch !== sync.epoch || state.domain !== domain) return;
@@ -2915,40 +2909,12 @@ async function syncAccess(force = false) {
     refreshAfterAccess();
   } finally {
     accessLoading = false;
-    if (epoch === sync.epoch) paintAccessSync();
   }
 }
 
 // The field lists just changed: repaint the data model tree if it's showing.
 function refreshAfterAccess() {
   if (state.dataModel) renderDataModelTree(dmSearch.value.trim().toLowerCase());
-}
-
-// Fields across this vault Vault says this user can't read.
-function accessDeniedCount() {
-  let n = 0;
-  for (const s of accessMap.values()) n += s.size;
-  return n;
-}
-
-// A shield on the data-model line, shown only when field access actually hides
-// something (or failed to load). The ↻ there reloads access, so there's no
-// separate control. Full-access users see nothing.
-function paintAccessSync() {
-  if (!accessInd) return;
-  const denied = accessDeniedCount();
-  const show = !!state.sessionId && (denied > 0 || !!accessError);
-  accessInd.classList.toggle("hidden", !show);
-  if (!show) return;
-  accessInd.classList.toggle("error", !!accessError);
-  if (accessBadge) {
-    accessBadge.classList.toggle("hidden", denied <= 0);
-    accessBadge.textContent = denied > 0 ? `${denied.toLocaleString()} hidden` : "";
-  }
-  const age = accessTime ? ` · loaded ${ageText(accessTime)}` : "";
-  accessInd.title = accessError
-    ? `Couldn't load your field access: ${accessError}. Reload the data model to retry.`
-    : `${denied.toLocaleString()} field${denied === 1 ? "" : "s"} you can't read are hidden from autocomplete and “insert all fields”${age}. Reloads with the data model (↻).`;
 }
 
 function extractFields(res) {

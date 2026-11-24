@@ -337,16 +337,10 @@
             <span class="dm-head-title">Data model</span>
             <span id="dm-counts" class="dm-counts"></span>
             <!-- How old the model is; it loads and refreshes by itself, ↻ forces
-                 it. The ↻ reloads your field access too. The shield shows only
-                 when fields you can't read are hidden from autocomplete and
-                 "insert all fields". -->
+                 it. The ↻ reloads your field access in the background too. -->
             <span class="sync-line">
-              <span id="access-ind" class="access-ind hidden" aria-hidden="true">
-                <svg class="access-shield" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                <span id="access-badge" class="access-badge"></span>
-              </span>
               <span id="dm-sync" class="sync-text"></span>
-              <button id="dm-refresh" class="sync-refresh" type="button" title="Reload Data Model and Field Access" aria-label="Refresh the data model and field access">&#8635;</button>
+              <button id="dm-refresh" class="sync-refresh" type="button" title="Reload Data Model" aria-label="Refresh the data model">&#8635;</button>
             </span>
             <div id="dm-sync-bar" class="sync-bar hidden" aria-hidden="true"><i></i></div>
           </div>

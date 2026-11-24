@@ -1234,34 +1234,8 @@ textarea::placeholder { color: var(--text-faint); }
 .dm-head {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 8px;
 }
-
-/* Field-access shield on the data-model line: shown only when fields you can't
-   read are hidden (or access failed to load). The data-model ↻ reloads it. */
-.access-ind {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  color: var(--accent-hover);
-  cursor: default;
-}
-.access-ind.hidden { display: none; }
-.access-ind.error { color: var(--red); }
-.access-shield { flex-shrink: 0; }
-.access-badge {
-  font-size: 10px;
-  font-family: var(--mono, monospace);
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: var(--accent-light);
-  color: var(--accent-hover);
-  white-space: nowrap;
-}
-.access-badge.hidden { display: none; }
 
 /* ---- Loading by itself: how old, and ↻ to refresh now ---- */
 .sync-line {
