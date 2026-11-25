@@ -98,8 +98,7 @@ let activeQueryToken = null;
 // ===================== WINDOW MODE =====================
 if (WINDOW_MODE) {
   document.body.classList.add("mode-window");
-  // The rail shows its names unless they were hidden last time (init reads
-  // that); on from the first paint, so it doesn't jump open.
+  // The rail lists its tools by name, grouped, from the first paint.
   document.body.classList.add("rail-open");
   // The workbench's status bar holds the vault identity; the top bar itself
   // becomes the rail.
@@ -200,7 +199,7 @@ if (!WINDOW_MODE) {
 document.addEventListener("DOMContentLoaded", async () => {
   const saved = await chrome.storage.local.get([
     "vaultDomain", "queryHistory", "queryTabs", "queryLimit",
-    "valueMode", "explorerPanel", "editorHeight", "savedQueries", "railOpen",
+    "valueMode", "explorerPanel", "editorHeight", "savedQueries",
   ]);
   if (VALUE_MODES.includes(saved.valueMode)) valueMode = saved.valueMode;
   paintValueMode();
@@ -7508,7 +7507,6 @@ function initWorkbench(saved, handedQuery) {
 
   const ep = saved.explorerPanel;
   setExplorer(ep === "history" ? "history" : ep === "saved" ? "saved" : ep === "none" ? null : "model", false);
-  setRailOpen(saved.railOpen !== false, false);
   const h = Number(saved.editorHeight);
   editorHeight = Number.isFinite(h) && h > 0 ? h : null;
 
@@ -7621,7 +7619,6 @@ function wireWorkbench() {
   railSaved.addEventListener("click", () => toggleExplorer("saved"));
   $("#es-add").addEventListener("click", saveCurrentQuery);
 
-  railToggle.addEventListener("click", () => setRailOpen(!document.body.classList.contains("rail-open")));
 
   inspClose.addEventListener("click", closeInspector);
   document.addEventListener("keydown", (e) => {
@@ -7660,22 +7657,6 @@ function setExplorer(panel, save = true) {
   railSaved.setAttribute("aria-pressed", String(panel === "saved"));
   if (save) chrome.storage.local.set({ explorerPanel: panel || "none" });
   if (panel === "model") syncDmToQuery();
-}
-
-// ---- Rail names ---------------------------------------------------------------
-// The rail lists its tools by name (grouped Work in / Side panels / Vault), or
-// shows icons alone. The choice is kept as railOpen.
-const railToggle = $("#rail-toggle");
-
-function setRailOpen(open, save = true) {
-  document.body.classList.toggle("rail-open", open);
-  const label = open ? "Hide names" : "Show names";
-  railToggle.setAttribute("aria-expanded", String(open));
-  railToggle.setAttribute("aria-label", label);
-  railToggle.title = label;
-  if (save) chrome.storage.local.set({ railOpen: open });
-  // The main column changed width under anything anchored to it.
-  closeColFilter();
 }
 
 // A second click on the open panel's button closes it.
@@ -7818,15 +7799,19 @@ function fitEditor() {
   if (editorHeight) {
     vqlInput.style.minHeight = "0";
     vqlInput.style.height = `${clampEditorHeight(editorHeight)}px`;
-    return;
+  } else {
+    vqlInput.style.minHeight = "";
+    const max = Math.max(220, Math.round(window.innerHeight * 0.45));
+    vqlInput.style.height = "auto";
+    // offsetHeight - clientHeight is the horizontal scrollbar when a line runs
+    // long; without it the last line hides under the bar.
+    const want = vqlInput.scrollHeight + (vqlInput.offsetHeight - vqlInput.clientHeight);
+    vqlInput.style.height = `${Math.min(want, max)}px`;
   }
-  vqlInput.style.minHeight = "";
-  const max = Math.max(220, Math.round(window.innerHeight * 0.45));
-  vqlInput.style.height = "auto";
-  // offsetHeight - clientHeight is the horizontal scrollbar when a line runs
-  // long; without it the last line hides under the bar.
-  const want = vqlInput.scrollHeight + (vqlInput.offsetHeight - vqlInput.clientHeight);
-  vqlInput.style.height = `${Math.min(want, max)}px`;
+  // The line numbers take the editor's height and scroll with it. Left to
+  // their own, a long query's numbers stretched the editor row past the
+  // window and squeezed the results to nothing.
+  editorGutter.style.height = `${vqlInput.offsetHeight}px`;
 }
 
 function syncEditorScroll() {

@@ -4391,10 +4391,6 @@ body.mode-window.rail-open .rail-group-panels { order: 9; }
 body.mode-window.rail-open .tab[data-tab="datamodel"] { margin-top: 0; }
 body.mode-window.rail-open .tab[data-tab="datamodel"]::before { display: none; }
 
-/* The names toggle, under the window controls. */
-body.mode-window .rail-toggle { margin-top: 4px; color: var(--text-hint); }
-body.mode-window:not(.rail-open) .rail-toggle svg { transform: rotate(180deg); }
-body.mode-window.rail-open .rail-toggle { border-top: 1px solid var(--border); border-radius: 0 0 8px 8px; }
 
 /* The wider rail takes room from the main column: the row drawer starts
    floating over the results, and the explorer narrows, that much sooner. */
