@@ -1469,10 +1469,16 @@ async function runQuery(isHeal = false) {
       const big = `Large result set (${finalRows.length} records, ${completed} pages)`;
       resultsContainer.innerHTML = `<div class="result-message info">${big} &mdash; getting record names, then downloading it as Excel&hellip;</div>`;
       const forData = lastResultData;
-      downloadXlsx(finalRows).then(() => {
-        if (lastResultData !== forData) return;   // a newer run owns the area now
-        resultsContainer.innerHTML = `<div class="result-message info">${big} &mdash; auto-downloaded as Excel. Table render skipped to keep the popup responsive.</div>`;
-      });
+      // The outcome replaces the progress line, here or in the tab it was
+      // stashed with if the user moved to another tab meanwhile.
+      const settle = (html) => {
+        if (lastResultData === forData) resultsContainer.innerHTML = html;
+        for (const snap of tabResults.values()) if (snap.data === forData && !snap.table) snap.message = html;
+      };
+      downloadXlsx(finalRows).then(
+        () => settle(`<div class="result-message info">${big} &mdash; auto-downloaded as Excel. Table render skipped to keep the popup responsive.</div>`),
+        (err) => settle(`<div class="result-message error" role="alert">${big} &mdash; the Excel file couldn&rsquo;t be built: ${esc(err?.message || String(err))}</div>`),
+      );
     } else {
       renderTable(finalRows);
     }
@@ -1683,7 +1689,7 @@ exportCsvBtn.addEventListener("click", (e) => {
     let csv = keys.map(csvEsc).join(",") + "\n";
     for (const row of rows) csv += keys.map((k) => csvEsc(exportText(row[k]))).join(",") + "\n";
     downloadBlob(new Blob([csv], { type: "text/csv" }), `vql_results_${Date.now()}.csv`);
-  });
+  }, raw ? "Exporting…" : undefined);
 });
 
 // ---- Names, not IDs, for object references in the exports ----------------------
@@ -1735,21 +1741,28 @@ function refFieldTargets(target) {
 // stop when the vault's burst budget runs low; an export the user asked for
 // goes on.
 const refInFlight = new Map();                       // `${domain}|${object}|${id}` -> Promise
-async function lookUpRefNames(object, ids, { background = false } = {}) {
+async function lookUpRefNames(object, ids, { background = false, retry = true } = {}) {
   const domain = state.domain;
   const nameField = REF_NAME_FIELD[object] || "name__v";
   const keyOf = (id) => `${domain}|${object}|${id}`;
+  const wanted = ids.filter((id) => REF_ID_RE.test(id));
   const waits = new Set();
-  const todo = [];
-  for (const id of ids) {
-    if (!REF_ID_RE.test(id) || refNameCache.has(keyOf(id))) continue;
-    const pending = refInFlight.get(keyOf(id));
-    if (pending) waits.add(pending);
-    else todo.push(id);
-  }
-  for (let i = 0; i < todo.length; i += REF_BATCH) {
-    if (background && budgetLow()) break;
-    const batch = todo.slice(i, i + REF_BATCH);
+  const waited = [];
+  let complete = true;
+  let i = 0;
+  while (i < wanted.length) {
+    if (background && budgetLow()) { complete = false; break; }
+    // The next batch, from IDs nobody has named or is asking about by now:
+    // another lookup may have run ahead while this one waited.
+    const batch = [];
+    while (i < wanted.length && batch.length < REF_BATCH) {
+      const id = wanted[i++];
+      if (refNameCache.has(keyOf(id))) continue;
+      const pending = refInFlight.get(keyOf(id));
+      if (pending) { waits.add(pending); waited.push(id); continue; }
+      batch.push(id);
+    }
+    if (!batch.length) continue;
     const job = (async () => {
       const list = batch.map((id) => `'${vqlStr(id)}'`).join(", ");
       const q = `SELECT id, ${nameField} FROM ${object} WHERE id CONTAINS (${list})`;
@@ -1769,11 +1782,18 @@ async function lookUpRefNames(object, ids, { background = false } = {}) {
     try {
       ok = await job;
     } finally {
-      for (const id of batch) refInFlight.delete(keyOf(id));
+      // Only this job's marks: another lookup may have taken some keys since.
+      for (const id of batch) if (refInFlight.get(keyOf(id)) === job) refInFlight.delete(keyOf(id));
     }
-    if (!ok) break;
+    if (!ok) { complete = false; break; }
   }
   await Promise.all(waits);
+  // An export the user asked for doesn't settle for another lookup's failure:
+  // the IDs it waited on and still has no answer for, it asks about itself.
+  const missed = waited.filter((id) => !refNameCache.has(keyOf(id)));
+  if (missed.length && !background && retry) await lookUpRefNames(object, missed, { retry: false });
+  else if (missed.length) complete = false;
+  return complete;
 }
 
 // The reference columns of these rows: column -> the object it points at.
@@ -1801,9 +1821,21 @@ function refIdsByObject(rows, cols) {
   return byObject;
 }
 
-// Looks up every ID those columns hold, one object at a time.
+// Looks up every ID those columns hold, one object at a time. False when a
+// background lookup stopped short (the vault's burst budget ran low).
 async function lookUpColumnNames(rows, cols, opts) {
-  for (const [object, ids] of refIdsByObject(rows, cols)) await lookUpRefNames(object, [...ids], opts);
+  let complete = true;
+  for (const [object, ids] of refIdsByObject(rows, cols)) {
+    if (!(await lookUpRefNames(object, [...ids], opts))) complete = false;
+  }
+  return complete;
+}
+
+// A reference cell's text ("id" or "id1, id2", as displayValue writes it)
+// with each ID as its name.
+function refNamedText(object, text) {
+  if (!text) return text;
+  return String(text).split(", ").map((x) => refNameCache.get(`${state.domain}|${object}|${x}`) ?? x).join(", ");
 }
 
 // One value of a reference column with its IDs as names (an ID without a
@@ -1833,12 +1865,15 @@ async function namedExportRows(rows) {
 // A result with more than REF_TABLE_CAP distinct IDs of one object keeps those
 // IDs on screen (its exports still name them all).
 const REF_TABLE_CAP = 2000;
-async function nameTableRefs() {
+// A background lookup the burst budget cut short tries again after the same
+// back-off the other background work uses (force: past the "named" mark).
+async function nameTableRefs(force = false) {
   const meta = resultMeta;
   const rows = queryRows;
   const view = resultsView;          // this result's view, even if a tab switch follows
-  if (!meta || !rows.length || meta.refCols || meta.refPending) return;
+  if (!meta || !rows.length || meta.refPending || (meta.refCols && !force)) return;
   meta.refPending = true;
+  let complete = true;
   try {
     const cols = await refColumns(rows, meta.target || queryObjectName);
     for (const k of meta.subKeys || []) cols.delete(k);
@@ -1846,16 +1881,22 @@ async function nameTableRefs() {
       if (ids.size > REF_TABLE_CAP) for (const [k, o] of [...cols]) if (o === object) cols.delete(k);
     }
     if (!cols.size) return;
-    await lookUpColumnNames(rows, cols, { background: true });
+    complete = await lookUpColumnNames(rows, cols, { background: true });
     meta.refCols = new Map([...cols].map(([k, o]) => [k.toLowerCase(), o]));
   } catch (e) {
     return;   // names unavailable: the IDs stay
   } finally {
     meta.refPending = false;
   }
-  // A column filter picked on the IDs would no longer match what shows.
-  for (const k of meta.refCols.keys()) {
-    for (const f of [...view.colFilters.keys()]) if (f.toLowerCase() === k) view.colFilters.delete(f);
+  if (!complete) {
+    setTimeout(() => { if (resultMeta === meta && queryRows === rows) nameTableRefs(true); }, SYNC_BACKOFF_MS);
+  }
+  // A column filter picked on IDs now matches what shows: its values become
+  // names too (an ID still without a name stays), so the same rows stay in.
+  for (const [k, object] of meta.refCols) {
+    for (const f of [...view.colFilters.keys()]) {
+      if (f.toLowerCase() === k) view.colFilters.set(f, new Set([...view.colFilters.get(f)].map((v) => refNamedText(object, v))));
+    }
   }
   // Another run or tab since, or a run under way: that paints itself.
   if (resultMeta !== meta || queryRows !== rows || activeQueryToken) return;
@@ -1886,18 +1927,20 @@ function nameRefCellsInPlace(refCols) {
       if (!td || td.classList.contains("editing") || pendingEdits[`${ri}:${k}`]) continue;
       const v = effectiveValue(ri, k);
       td.innerHTML = cellContent(k, v);
+      // The panel's editable cells keep their "Click to Edit".
       if (!td.classList.contains("editable")) td.title = cellTip(v, cellLockReason(ri, k));
+      else if (WINDOW_MODE) td.title = cellTip(v, "");
     }
   }
 }
 
 // The button says it's busy while names are looked up; a failed lookup still
 // exports (with IDs), and the button always comes back.
-async function withExportBusy(btn, job) {
+async function withExportBusy(btn, job, busyLabel = "Getting names…") {
   if (btn.disabled) return;
   const label = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "Getting names…";
+  btn.textContent = busyLabel;
   try {
     await job();
   } finally {
@@ -2023,22 +2066,36 @@ const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const XLSX_COL_MAX_PX = 560;
 const XLSX_DIGIT_PX = 7;          // Calibri 11's digit width: Excel's width unit
 const XLSX_CELL_PAD_PX = 9;       // Excel's cell padding plus a little air
-const XLSX_WIDEST_GLYPH_PX = 14;  // no Calibri 11 character is wider
+const XLSX_WIDEST_GLYPH_PX = 15;  // a full-width (CJK) character at 11pt is ~14.7
 
 let xlsxMeasureCtx = null;
+let xlsxAsciiPx = null;           // Calibri 11 width of each printable ASCII character
 // The width a line of text takes in Calibri 11 (Carlito is its metric twin),
-// in pixels. Without a canvas, a digit-width guess per character.
+// in pixels. Printable ASCII adds up per-character widths measured once (a
+// huge export would stall measuring every cell); anything else is measured
+// whole. Without a canvas, a digit-width guess per character.
 function xlsxTextPx(line) {
   if (xlsxMeasureCtx === null) {
     try {
       const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(1, 1) : document.createElement("canvas");
       xlsxMeasureCtx = canvas.getContext("2d") || false;
-      if (xlsxMeasureCtx) xlsxMeasureCtx.font = "11pt Calibri, Carlito, Arial, sans-serif";
+      if (xlsxMeasureCtx) {
+        xlsxMeasureCtx.font = "11pt Calibri, Carlito, Arial, sans-serif";
+        xlsxAsciiPx = new Float32Array(127);
+        for (let c = 32; c < 127; c++) xlsxAsciiPx[c] = xlsxMeasureCtx.measureText(String.fromCharCode(c)).width;
+      }
     } catch (e) {
       xlsxMeasureCtx = false;
     }
   }
-  return xlsxMeasureCtx ? xlsxMeasureCtx.measureText(line).width : line.length * XLSX_DIGIT_PX;
+  if (!xlsxMeasureCtx) return line.length * XLSX_DIGIT_PX;
+  let px = 0;
+  for (let i = 0; i < line.length; i++) {
+    const c = line.charCodeAt(i);
+    if (c < 32 || c > 126) return xlsxMeasureCtx.measureText(line).width;
+    px += xlsxAsciiPx[c];
+  }
+  return px;
 }
 
 // The widest line of a cell's text, in pixels. `known` is the column's widest
@@ -2144,7 +2201,7 @@ async function downloadXlsx(rows, { raw = false } = {}) {
 exportXlsxBtn.addEventListener("click", (e) => {
   if (!lastResultData?.data?.length) return;
   const raw = e.shiftKey;   // Shift+click: reference fields as IDs
-  withExportBusy(exportXlsxBtn, () => downloadXlsx(lastResultData.data, { raw }));
+  withExportBusy(exportXlsxBtn, () => downloadXlsx(lastResultData.data, { raw }), raw ? "Exporting…" : undefined);
 });
 
 // Minimal ZIP builder (no compression, store only — works for xlsx)
@@ -2335,13 +2392,13 @@ function defaultSavedName(q) {
   return m ? m[1] : "Saved query";
 }
 
-function savedRowHtml(s) {
+function savedRowHtml(s, curId = currentSaved()?.id) {
   if (s.id === savedRenameId) {
     return `<div class="saved-row renaming" data-id="${s.id}">` +
       `<input class="saved-rename-input" type="text" maxlength="60" value="${esc(s.name)}" aria-label="Query name" /></div>`;
   }
   // The one the editor holds now is marked.
-  const cur = s.id === currentSaved()?.id;
+  const cur = s.id === curId;
   return (
     `<div class="saved-row${cur ? " cur" : ""}" data-id="${s.id}" title="${esc(s.query)}">` +
     `<button type="button" class="saved-load">` +
@@ -2358,7 +2415,9 @@ function savedRowHtml(s) {
 
 function renderSaved() {
   const empty = '<div class="saved-empty">No saved queries yet. Write one, then Save (Ctrl S).</div>';
-  const html = savedQueries.length ? savedQueries.map(savedRowHtml).join("") : empty;
+  const curId = currentSaved()?.id;
+  const row = (s) => savedRowHtml(s, curId);
+  const html = savedQueries.length ? savedQueries.map(row).join("") : empty;
   if (savedRailList) savedRailList.innerHTML = html;
   // The drop-down list narrows to its search box.
   if (savedList) {
@@ -2367,7 +2426,7 @@ function renderSaved() {
       ? savedQueries.filter((s) => s.name.toLowerCase().includes(q) || s.query.toLowerCase().includes(q))
       : savedQueries;
     savedList.innerHTML = !savedQueries.length ? empty
-      : hits.length ? hits.map(savedRowHtml).join("")
+      : hits.length ? hits.map(row).join("")
       : '<div class="saved-empty">No saved query matches.</div>';
   }
   // Focus whichever rename input is actually on screen (overlay or rail).
@@ -2613,9 +2672,10 @@ document.addEventListener("keydown", (e) => {
   if (vqlPanel.classList.contains("hidden")) return;
   e.preventDefault();
   activatePane("query");
-  // The INSERT and FIND rows hide Save and Saved on the full window's toolbar.
-  if (!insertRow.hidden) setInsertOpen(false);
-  if (!findRow.hidden) setFindOpen(false);
+  // The INSERT and FIND rows hide Save and Saved on the full window's toolbar
+  // (the overlay keeps them in view, and a FIND term being typed).
+  if (WINDOW_MODE && !insertRow.hidden) setInsertOpen(false);
+  if (WINDOW_MODE && !findRow.hidden) setFindOpen(false);
   if (k === "o") openSavedList();
   else if (!saveNamePop.classList.contains("hidden")) confirmSaveName();   // the name typed so far
   else onSaveQuery();
@@ -6738,8 +6798,10 @@ function showDocTypeFields(type) {
     return;
   }
 
-  // Picklists opened before a re-render (a fresh fetch, say) open again after.
+  // Picklists opened before a re-render (a fresh fetch, say) open again after,
+  // and so does the "Not on layout" section.
   const reopen = [...dtFields.querySelectorAll('.dt-pick[aria-expanded="true"]')].map((r) => r.dataset.fname);
+  const offOpen = !!dtFields.querySelector(".dt-offlayout.open");
   let html = "";
 
   if (!detected) {
@@ -6833,6 +6895,11 @@ function showDocTypeFields(type) {
   }
 
   dtFields.innerHTML = html;
+  if (offOpen) {
+    const wrap = dtFields.querySelector(".dt-offlayout");
+    wrap?.classList.add("open");
+    wrap?.querySelector(".dt-offlayout-toggle")?.setAttribute("aria-expanded", "true");
+  }
   finishDocTypeFields(type, reopen);
 }
 
