@@ -172,7 +172,7 @@ if (!WINDOW_MODE) {
   // Query these by selector: their consts are declared far below, so naming
   // them here would hit the temporal dead zone at load. #export-menu stays open
   // and grows while a config report runs, so it must be measured too.
-  const floatingPanels = [acDropdown, historyPopover, $("#saved-popover"), $("#export-menu"), $("#colfilter-menu")];
+  const floatingPanels = [acDropdown, historyPopover, $("#saved-popover"), $("#export-menu"), $("#colfilter-menu"), $("#save-name-pop")];
   let lastHeight = 0;
 
   const reportHeight = () => {
@@ -1466,8 +1466,13 @@ async function runQuery(isHeal = false) {
     // available so the user can re-export from lastResultData if needed.
     const autoExport = pagesNeeded > AUTO_EXPORT_PAGE_THRESHOLD || completed > AUTO_EXPORT_PAGE_THRESHOLD;
     if (autoExport) {
-      downloadXlsx(finalRows);
-      resultsContainer.innerHTML = `<div class="result-message info">Large result set (${finalRows.length} records, ${completed} pages) &mdash; auto-downloaded as Excel. Table render skipped to keep the popup responsive.</div>`;
+      const big = `Large result set (${finalRows.length} records, ${completed} pages)`;
+      resultsContainer.innerHTML = `<div class="result-message info">${big} &mdash; getting record names, then downloading it as Excel&hellip;</div>`;
+      const forData = lastResultData;
+      downloadXlsx(finalRows).then(() => {
+        if (lastResultData !== forData) return;   // a newer run owns the area now
+        resultsContainer.innerHTML = `<div class="result-message info">${big} &mdash; auto-downloaded as Excel. Table render skipped to keep the popup responsive.</div>`;
+      });
     } else {
       renderTable(finalRows);
     }
@@ -1662,13 +1667,18 @@ copyBtn.addEventListener("click", async () => {
   copyBtn.resetTimer = setTimeout(() => (copyBtn.textContent = "Copy JSON"), 1500);
 });
 
-exportCsvBtn.addEventListener("click", () => {
+// Shift+click exports reference fields as Vault's IDs (for a re-import);
+// a plain click writes their names.
+exportCsvBtn.addEventListener("click", (e) => {
   if (!lastResultData?.data?.length) return;
+  const raw = e.shiftKey;
   withExportBusy(exportCsvBtn, async () => {
     let rows = lastResultData.data;
-    try {
-      rows = await namedExportRows(rows);
-    } catch (e) { /* names unavailable: the IDs go out */ }
+    if (!raw) {
+      try {
+        rows = await namedExportRows(rows);
+      } catch (err) { /* names unavailable: the IDs go out */ }
+    }
     const keys = resultColumns(rows);
     let csv = keys.map(csvEsc).join(",") + "\n";
     for (const row of rows) csv += keys.map((k) => csvEsc(exportText(row[k]))).join(",") + "\n";
@@ -1719,27 +1729,51 @@ function refFieldTargets(target) {
   return refTargetCache.get(key);
 }
 
-// Fills refNameCache for these IDs of one object, REF_BATCH at a time.
-async function lookUpRefNames(object, ids) {
+// Fills refNameCache for these IDs of one object, REF_BATCH at a time. IDs
+// another lookup is already asking about are waited for, not asked again (the
+// table's lookup and an export can overlap). Background lookups (the table's)
+// stop when the vault's burst budget runs low; an export the user asked for
+// goes on.
+const refInFlight = new Map();                       // `${domain}|${object}|${id}` -> Promise
+async function lookUpRefNames(object, ids, { background = false } = {}) {
+  const domain = state.domain;
   const nameField = REF_NAME_FIELD[object] || "name__v";
-  const todo = ids.filter((id) => REF_ID_RE.test(id) && !refNameCache.has(`${state.domain}|${object}|${id}`));
-  for (let i = 0; i < todo.length; i += REF_BATCH) {
-    const batch = todo.slice(i, i + REF_BATCH);
-    const list = batch.map((id) => `'${vqlStr(id)}'`).join(", ");
-    const q = `SELECT id, ${nameField} FROM ${object} WHERE id CONTAINS (${list})`;
-    const res = await apiCall("/query", "POST", `q=${encodeURIComponent(q)}`);
-    if (!apiOk(res)) return;   // e.g. no access to the object: its IDs stay
-    for (const r of res.data?.data || []) {
-      const name = r[nameField];
-      if (r.id != null && name != null && name !== "") refNameCache.set(`${state.domain}|${object}|${r.id}`, String(name));
-    }
-    // Asked and not found (deleted, hidden): remembered, so the next export
-    // doesn't ask again; null keeps the ID.
-    for (const id of batch) {
-      const k = `${state.domain}|${object}|${id}`;
-      if (!refNameCache.has(k)) refNameCache.set(k, null);
-    }
+  const keyOf = (id) => `${domain}|${object}|${id}`;
+  const waits = new Set();
+  const todo = [];
+  for (const id of ids) {
+    if (!REF_ID_RE.test(id) || refNameCache.has(keyOf(id))) continue;
+    const pending = refInFlight.get(keyOf(id));
+    if (pending) waits.add(pending);
+    else todo.push(id);
   }
+  for (let i = 0; i < todo.length; i += REF_BATCH) {
+    if (background && budgetLow()) break;
+    const batch = todo.slice(i, i + REF_BATCH);
+    const job = (async () => {
+      const list = batch.map((id) => `'${vqlStr(id)}'`).join(", ");
+      const q = `SELECT id, ${nameField} FROM ${object} WHERE id CONTAINS (${list})`;
+      const res = await apiCall("/query", "POST", `q=${encodeURIComponent(q)}`);
+      if (!apiOk(res)) return false;   // e.g. no access to the object: its IDs stay
+      for (const r of res.data?.data || []) {
+        const name = r[nameField];
+        if (r.id != null && name != null && name !== "") refNameCache.set(keyOf(r.id), String(name));
+      }
+      // Asked and not found (deleted, hidden): remembered, so the next lookup
+      // doesn't ask again; null keeps the ID.
+      for (const id of batch) if (!refNameCache.has(keyOf(id))) refNameCache.set(keyOf(id), null);
+      return true;
+    })();
+    for (const id of batch) refInFlight.set(keyOf(id), job);
+    let ok = false;
+    try {
+      ok = await job;
+    } finally {
+      for (const id of batch) refInFlight.delete(keyOf(id));
+    }
+    if (!ok) break;
+  }
+  await Promise.all(waits);
 }
 
 // The reference columns of these rows: column -> the object it points at.
@@ -1752,8 +1786,8 @@ async function refColumns(rows, target) {
   return cols;
 }
 
-// Looks up every ID those columns hold, one object at a time.
-async function lookUpColumnNames(rows, cols) {
+// Every ID those columns hold, by the object it belongs to.
+function refIdsByObject(rows, cols) {
   const byObject = new Map();
   for (const [k, object] of cols) {
     const set = byObject.get(object) || new Set();
@@ -1764,7 +1798,12 @@ async function lookUpColumnNames(rows, cols) {
     }
     byObject.set(object, set);
   }
-  for (const [object, ids] of byObject) await lookUpRefNames(object, [...ids]);
+  return byObject;
+}
+
+// Looks up every ID those columns hold, one object at a time.
+async function lookUpColumnNames(rows, cols, opts) {
+  for (const [object, ids] of refIdsByObject(rows, cols)) await lookUpRefNames(object, [...ids], opts);
 }
 
 // One value of a reference column with its IDs as names (an ID without a
@@ -1791,32 +1830,64 @@ async function namedExportRows(rows) {
 // The table shows names too, once they're in: after a run, the same lookup
 // (and cache) as the exports. Until then, and for an ID without a readable
 // name, the ID shows. Kept on the result's meta, so a tab comes back named.
+// A result with more than REF_TABLE_CAP distinct IDs of one object keeps those
+// IDs on screen (its exports still name them all).
+const REF_TABLE_CAP = 2000;
 async function nameTableRefs() {
   const meta = resultMeta;
   const rows = queryRows;
+  const view = resultsView;          // this result's view, even if a tab switch follows
   if (!meta || !rows.length || meta.refCols || meta.refPending) return;
   meta.refPending = true;
   try {
     const cols = await refColumns(rows, meta.target || queryObjectName);
     for (const k of meta.subKeys || []) cols.delete(k);
+    for (const [object, ids] of refIdsByObject(rows, cols)) {
+      if (ids.size > REF_TABLE_CAP) for (const [k, o] of [...cols]) if (o === object) cols.delete(k);
+    }
     if (!cols.size) return;
-    await lookUpColumnNames(rows, cols);
+    await lookUpColumnNames(rows, cols, { background: true });
     meta.refCols = new Map([...cols].map(([k, o]) => [k.toLowerCase(), o]));
   } catch (e) {
     return;   // names unavailable: the IDs stay
   } finally {
     meta.refPending = false;
   }
-  if (resultMeta !== meta) return;   // another run or tab since: it paints itself
   // A column filter picked on the IDs would no longer match what shows.
   for (const k of meta.refCols.keys()) {
-    for (const f of [...resultsView.colFilters.keys()]) if (f.toLowerCase() === k) resultsView.colFilters.delete(f);
+    for (const f of [...view.colFilters.keys()]) if (f.toLowerCase() === k) view.colFilters.delete(f);
   }
-  if (WINDOW_MODE) {
-    if (resultsView.active) paintResultsView();
-    renderInspector();
+  // Another run or tab since, or a run under way: that paints itself.
+  if (resultMeta !== meta || queryRows !== rows || activeQueryToken) return;
+  // A cell being edited or an open related-records row would be lost to a
+  // redraw: then only the reference cells change.
+  if (resultsContainer.querySelector("td.editing, tr.sub-row")) {
+    nameRefCellsInPlace(meta.refCols);
+    paintColFilterBar();
+  } else if (WINDOW_MODE) {
+    if (view.active) paintResultsView();
   } else {
     paintPanelPage();
+  }
+  if (WINDOW_MODE) renderInspector();
+  if (colFilterUi) renderColFilterList();
+}
+
+// Swaps the reference cells' IDs for names where they stand, leaving the rest
+// of the table (an edit in progress, an open sub-row) alone.
+function nameRefCellsInPlace(refCols) {
+  const keys = WINDOW_MODE ? resultKeys.filter((k) => !resultsView.hidden.has(k)) : resultKeys;
+  const offset = WINDOW_MODE ? 1 : 0;                 // the row-number column
+  const cols = keys.map((k, i) => [k, i]).filter(([k]) => refCols.has(k.toLowerCase()));
+  for (const tr of resultsContainer.querySelectorAll("tbody tr[data-row]")) {
+    const ri = Number(tr.dataset.row);
+    for (const [k, i] of cols) {
+      const td = tr.children[offset + i];
+      if (!td || td.classList.contains("editing") || pendingEdits[`${ri}:${k}`]) continue;
+      const v = effectiveValue(ri, k);
+      td.innerHTML = cellContent(k, v);
+      if (!td.classList.contains("editable")) td.title = cellTip(v, cellLockReason(ri, k));
+    }
   }
 }
 
@@ -2033,20 +2104,24 @@ ${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" Co
   return zip.toBlob();
 }
 
-// Reference IDs become names first; if that fails, the file still comes out.
-async function downloadXlsx(rows) {
+// Reference IDs become names first (raw: kept as IDs); if the lookup fails,
+// the file still comes out.
+async function downloadXlsx(rows, { raw = false } = {}) {
   let named = rows;
-  try {
-    named = await namedExportRows(rows);
-  } catch (e) {
-    named = rows;
+  if (!raw) {
+    try {
+      named = await namedExportRows(rows);
+    } catch (e) {
+      named = rows;
+    }
   }
   downloadBlob(buildXlsxBlob(named), `vql_results_${Date.now()}.xlsx`);
 }
 
-exportXlsxBtn.addEventListener("click", () => {
+exportXlsxBtn.addEventListener("click", (e) => {
   if (!lastResultData?.data?.length) return;
-  withExportBusy(exportXlsxBtn, () => downloadXlsx(lastResultData.data));
+  const raw = e.shiftKey;   // Shift+click: reference fields as IDs
+  withExportBusy(exportXlsxBtn, () => downloadXlsx(lastResultData.data, { raw }));
 });
 
 // Minimal ZIP builder (no compression, store only — works for xlsx)
@@ -2321,7 +2396,14 @@ function loadSavedIntoEditor(id) {
   // The full window keeps the query you were on: it opens in a new tab.
   if (WINDOW_MODE) {
     const cur = vqlInput.value.trim();
-    if (cur && cur !== s.query) newQueryTab();
+    if (cur && cur !== s.query) {
+      // No new tab while a query runs, and its tab isn't to be overwritten.
+      if (activeQueryToken) {
+        alert("A query is still running. Try again when it finishes.");
+        return;
+      }
+      newQueryTab();
+    }
   }
   vqlInput.value = s.query;
   setEditorSavedId(s.id);
@@ -2390,13 +2472,14 @@ function setEditorSavedId(id) {
 
 // A query that now reads FROM another object is a different query, not an
 // edit of the saved one (select-all and retype shouldn't offer to overwrite).
+// The top-level target: a subquery's FROM isn't the query's object.
 function currentSaved() {
   const q = vqlInput.value.trim();
   const id = editorSavedId();
   const byId = id && savedQueries.find((s) => s.id === id);
   if (byId) {
-    const was = defaultSavedName(byId.query), now = defaultSavedName(q);
-    const moved = was !== "Saved query" && now !== "Saved query" && was.toLowerCase() !== now.toLowerCase();
+    const was = vqlShape(byId.query).target, now = vqlShape(q).target;
+    const moved = !!(was && now) && was.toLowerCase() !== now.toLowerCase();
     if (!moved) return byId;
   }
   return (q && savedQueries.find((s) => s.query === q)) || null;
@@ -2507,8 +2590,12 @@ document.addEventListener("keydown", (e) => {
   if (vqlPanel.classList.contains("hidden")) return;
   e.preventDefault();
   activatePane("query");
-  if (k === "s") onSaveQuery();
-  else openSavedList();
+  // The INSERT and FIND rows hide Save and Saved on the full window's toolbar.
+  if (!insertRow.hidden) setInsertOpen(false);
+  if (!findRow.hidden) setFindOpen(false);
+  if (k === "o") openSavedList();
+  else if (!saveNamePop.classList.contains("hidden")) confirmSaveName();   // the name typed so far
+  else onSaveQuery();
 });
 
 $("#saved-add-btn").addEventListener("click", saveCurrentQuery);
@@ -3293,7 +3380,7 @@ async function syncAccess() {
     if (!apiOk(res)) return;
     accessMap = parseAccessRows(res.data?.data || []);
     accessTime = Date.now();
-    await saveVaultCache("access", domain, { time: accessTime, denied: serializeAccess(denied) });
+    await saveVaultCache("access", domain, { time: accessTime, denied: serializeAccess(accessMap) });
     refreshAfterAccess();
   } finally {
     accessLoading = false;
@@ -5109,8 +5196,10 @@ function startEditing(td) {
     const origVal = queryRows[ri][field] === null || queryRows[ri][field] === undefined ? "" : String(queryRows[ri][field]);
 
     td.classList.remove("editing");
-    td.innerHTML = cellContent(field, newVal);
-    if (WINDOW_MODE) td.title = newVal;
+    // Unchanged: back to what the column shows (a reference's name, not its ID).
+    const shown = newVal === origVal ? shownValue(field, queryRows[ri][field]) : newVal;
+    td.innerHTML = cellContent(field, shown);
+    if (WINDOW_MODE) td.title = shown;
 
     if (newVal !== origVal) {
       td.classList.add("dirty");
@@ -5850,10 +5939,18 @@ function countSubtypes(t) {
     })));
 }
 
-async function loadClasses(t, sub) {
+const dtClassJobs = new Map();   // `${type}|${sub}` -> the lookup under way
+
+function loadClasses(t, sub) {
   const key = subId(t.name, sub.name);
-  const cur = dtClasses.get(key);
-  if (cur && (cur.state === "loading" || cur.state === "done")) return;
+  if (dtClassJobs.has(key)) return dtClassJobs.get(key);
+  if (dtClasses.get(key)?.state === "done") return Promise.resolve();
+  const job = fetchClasses(t, sub, key).finally(() => dtClassJobs.delete(key));
+  dtClassJobs.set(key, job);
+  return job;
+}
+
+async function fetchClasses(t, sub, key) {
   const path = vaultPath(sub.value || sub.link);
   if (!path) { dtClasses.set(key, { state: "done", list: [] }); return; }
   dtClasses.set(key, { state: "loading", list: [] });
@@ -6174,7 +6271,17 @@ dtTree.addEventListener("click", (e) => {
   // it has a caret; a subtype without classifications doesn't open.
   const subRow = e.target.closest(".dt-sub-row");
   if (sub && (twist || subRow)) {
-    if (!subRow?.classList.contains("dt-sub-leaf")) toggleSubDrill(type, sub);
+    const key = subId(type.name, sub.name);
+    if (!subRow?.classList.contains("dt-sub-leaf")) {
+      toggleSubDrill(type, sub);
+    } else if (dtClasses.get(key)?.state !== "done") {
+      // Not known yet (still in the queue): ask now, and open it if it has
+      // classifications. One without stays shut, as it should.
+      loadClasses(type, sub).then(() => {
+        const c = dtClasses.get(key);
+        if (c?.state === "done" && c.list.length && !dtSubExpanded.has(key)) toggleSubDrill(type, sub);
+      });
+    }
     return;
   }
   // The type's caret opens its subtypes.

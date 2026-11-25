@@ -76,7 +76,8 @@ async function call(path, { method = "GET", form = null, versioned = true } = {}
   const res = await fetch(url, { method, headers, body });
   let data = null;
   try { data = await res.json(); } catch { /* not JSON */ }
-  const ok = res.ok && data && data.responseStatus !== "FAILURE";
+  // Strictly true/false: a non-JSON 200 (an SSO or maintenance page) is a failure, not a skip.
+  const ok = !!(res.ok && data && data.responseStatus !== "FAILURE");
   const error = data?.errors?.[0]?.message || data?.responseMessage || `HTTP ${res.status}`;
   return { ok, data, error };
 }
