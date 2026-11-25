@@ -2015,23 +2015,46 @@ const XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 
-// Wrapping needs a set width to wrap at: Excel's default (8.43 characters)
-// would break most headers and values over several lines. Each column fits its
-// longest line, header included, within these bounds in Excel's character
-// units; anything longer wraps inside the cap.
-const XLSX_COL_MIN = 10;
-const XLSX_COL_MAX = 60;
+// Each column is as wide as its widest text, header included, measured the way
+// Excel draws it (Calibri 11) rather than by counting characters: Calibri is
+// proportional, so a count makes "iiii" columns too wide and "WWWW" ones too
+// narrow. Text wider than XLSX_COL_MAX_PX wraps inside that width; the rows then
+// grow to fit (wrapText is on and no row height is fixed).
+const XLSX_COL_MAX_PX = 560;
+const XLSX_DIGIT_PX = 7;          // Calibri 11's digit width: Excel's width unit
+const XLSX_CELL_PAD_PX = 9;       // Excel's cell padding plus a little air
+const XLSX_WIDEST_GLYPH_PX = 14;  // no Calibri 11 character is wider
 
-function longestLine(s) {
-  if (s.indexOf("\n") === -1) return s.length;
-  let n = 0;
-  for (const line of s.split("\n")) n = Math.max(n, line.length);
-  return n;
+let xlsxMeasureCtx = null;
+// The width a line of text takes in Calibri 11 (Carlito is its metric twin),
+// in pixels. Without a canvas, a digit-width guess per character.
+function xlsxTextPx(line) {
+  if (xlsxMeasureCtx === null) {
+    try {
+      const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(1, 1) : document.createElement("canvas");
+      xlsxMeasureCtx = canvas.getContext("2d") || false;
+      if (xlsxMeasureCtx) xlsxMeasureCtx.font = "11pt Calibri, Carlito, Arial, sans-serif";
+    } catch (e) {
+      xlsxMeasureCtx = false;
+    }
+  }
+  return xlsxMeasureCtx ? xlsxMeasureCtx.measureText(line).width : line.length * XLSX_DIGIT_PX;
+}
+
+// The widest line of a cell's text, in pixels. `known` is the column's widest
+// so far: a line too short to beat it isn't measured.
+function xlsxWidestPx(s, known = 0) {
+  let px = known;
+  for (const line of String(s).split("\n")) {
+    if (line.length * XLSX_WIDEST_GLYPH_PX <= px) continue;
+    px = Math.max(px, xlsxTextPx(line));
+  }
+  return px;
 }
 
 function sheetXml(keys, rows) {
   const xmlEsc = (s) => xmlSafe(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const widths = keys.map((k) => longestLine(String(k)));
+  const widths = keys.map((k) => xlsxWidestPx(k));   // pixels
   let sheetRows = "<row>";
   for (const key of keys) sheetRows += `<c s="1" t="inlineStr"><is><t>${xmlEsc(key)}</t></is></c>`;
   sheetRows += "</row>";
@@ -2040,7 +2063,7 @@ function sheetXml(keys, rows) {
     for (let i = 0; i < keys.length; i++) {
       const val = row[keys[i]];
       const text = typeof val === "number" ? String(val) : String(exportText(val));
-      if (widths[i] < XLSX_COL_MAX) widths[i] = Math.max(widths[i], longestLine(text));
+      if (widths[i] < XLSX_COL_MAX_PX) widths[i] = xlsxWidestPx(text, widths[i]);
       if (typeof val === "number") {
         sheetRows += `<c s="1"><v>${val}</v></c>`;
       } else {
@@ -2049,11 +2072,11 @@ function sheetXml(keys, rows) {
     }
     sheetRows += "</row>";
   }
-  // +2 for the cell's padding, so a value at exactly the measured width fits.
+  // Pixels to Excel's width unit (a digit's width), with the cell's padding.
   const cols = widths
-    .map((w, i) => {
-      const width = Math.min(XLSX_COL_MAX, Math.max(XLSX_COL_MIN, w + 2));
-      return `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`;
+    .map((px, i) => {
+      const width = (Math.min(XLSX_COL_MAX_PX, px) + XLSX_CELL_PAD_PX) / XLSX_DIGIT_PX;
+      return `<col min="${i + 1}" max="${i + 1}" width="${width.toFixed(2)}" customWidth="1"/>`;
     })
     .join("");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -3284,6 +3307,7 @@ async function learnUnselectable(objName, fields) {
     if (!set.has(l)) { set.add(l); added = true; }
   }
   if (added && state.domain) await saveVaultCache("unsel", state.domain, { objs: serializeAccess(unselMap) });
+  if (added && key === "documents") refreshDocTypeFields();
 }
 
 // Field names Vault names when it refuses a SELECT field. Documents are the
@@ -3313,7 +3337,12 @@ function stripSelectFields(query, names) {
   const items = vqlListItems(query, span);
   const kept = items.filter((it) => !rm.has(it.text.trim().toLowerCase()));
   if (!kept.length || kept.length === items.length) return null;
-  return query.slice(0, span.start) + kept.map((it) => it.text).join(",") + query.slice(span.end);
+  // The list's own edges stay as they were: the last item carries the line
+  // break before FROM, so dropping it used to leave "fieldFROM documents".
+  const lead = /^\s*/.exec(items[0].text)[0];
+  const trail = /\s*$/.exec(items[items.length - 1].text)[0];
+  const body = kept.map((it) => it.text).join(",").replace(/^\s*/, "").replace(/\s*$/, "");
+  return query.slice(0, span.start) + lead + body + trail + query.slice(span.end);
 }
 
 // name__v arrives as object.{obj}.object_actions and, for a field,
@@ -3390,6 +3419,7 @@ async function syncAccess() {
 // The field lists just changed: repaint the data model tree if it's showing.
 function refreshAfterAccess() {
   if (state.dataModel) renderDataModelTree(dmSearch.value.trim().toLowerCase());
+  refreshDocTypeFields();
 }
 
 function extractFields(res) {
@@ -6833,9 +6863,18 @@ const DT_QUERY_ICON =
   '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>';
 
-// The fields a query can take: on the layout, not hidden, queryable, a VQL name.
+// The fields a query can take: not hidden, and selectable on documents by the
+// same rule as the data model's "insert all fields" (queryable, a VQL name,
+// readable by this user, not refused by Vault before). The list, its counts and
+// the QUERY button all go by it, so they agree.
 function dtQueryable(p) {
-  return p.hidden !== true && p.queryable !== false && /^[a-z_][a-z0-9_]*$/i.test(p.name || "") && p.name !== "id";
+  return p.hidden !== true && p.name !== "id" && fieldSelectable("documents", p);
+}
+
+// What Dweller knows about documents fields changed (access loaded, a field
+// Vault refused): the open type's list follows.
+function refreshDocTypeFields() {
+  if (dtSelected) showDocTypeFields(dtSelected);
 }
 
 function dtIsUserField(p) {
