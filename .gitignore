@@ -42,3 +42,6 @@ xcuserdata/
 .env
 .env.*
 secrets.json
+
+# Personal Claude Code settings (permissions) — not shared
+.claude/settings.local.json
