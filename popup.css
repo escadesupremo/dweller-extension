@@ -2063,6 +2063,8 @@ body.mode-window .dt-sort-opt { height: 22px; padding: 0 11px; font-size: 12px; 
 }
 .dt-class-row { cursor: default; }
 .dt-sub-row:hover { background: var(--bg); }
+.dt-sub-row.dt-sub-leaf { cursor: default; }
+.dt-sub-row.dt-sub-leaf:hover { background: none; }
 .dt-sub-row { padding-left: 24px; }
 .dt-class-row { padding-left: 42px; }
 .dt-sub-label {
@@ -2672,8 +2674,8 @@ body.mode-window .statusbar .topbar-user::before {
 body.mode-window .model-chip:hover { background-color: #d6a64a; }
 
 /* The rail's panels stand in for the toolbar pills here. */
-body.mode-window .history-wrap,
-body.mode-window .saved-wrap { display: none; }
+/* The full window has History in its rail; Saved moves onto the toolbar. */
+body.mode-window .history-wrap { display: none; }
 
 /* ---- Columns ---- */
 body.mode-window #vql-panel {
@@ -3991,4 +3993,424 @@ body.mode-window .sub-table td.col-id { font-size: 11px; color: var(--text-mid);
   body.mode-window #tab-datamodel,
   body.mode-window[data-explorer="history"] .explorer-history,
   body.mode-window[data-explorer="saved"] .explorer-saved { width: 240px; }
+}
+
+/* ---- Column filters: the ▾ on each result header, its menu, the chips ---- */
+.cf-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin: -2px 0 0 5px;
+  padding: 0;
+  vertical-align: middle;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.cf-btn:hover { background: var(--bg-deep); color: var(--ink); }
+.cf-btn.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink, var(--ink)); }
+.cf-btn.open { background: var(--field-bg); border-color: var(--accent); color: var(--accent-hover); }
+.cf-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.results-table th.cf-on,
+body.mode-window .results-table th.cf-on {
+  background-color: var(--accent-light);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.results-table tr.no-match td { padding: 14px 12px; color: var(--text-hint); white-space: normal; }
+.results-table tr.no-match:hover td { background: transparent; }
+
+.colfilter-menu {
+  position: absolute;
+  z-index: 60;
+  width: 264px;
+  padding: 8px;
+  background: var(--field-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.cf-head {
+  padding: 2px 4px 7px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-hint);
+}
+
+.cf-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field-bg);
+  color: var(--text-faint);
+}
+.cf-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+.cf-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--ink);
+}
+
+.cf-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 6px -2px;
+  padding: 3px 2px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.cf-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cf-opt:hover { background: var(--btn-soft-hover); }
+.cf-opt input { flex-shrink: 0; margin: 0; accent-color: var(--accent-hover); }
+.cf-all { font-weight: 600; }
+.cf-v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-blank { color: var(--text-faint); font-style: italic; }
+.cf-n { flex-shrink: 0; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.cf-note { padding: 6px; font-size: 11.5px; color: var(--text-hint); }
+.cf-foot { display: flex; justify-content: space-between; gap: 8px; }
+.cf-foot .btn { flex: 1; width: auto; justify-content: center; white-space: nowrap; }
+
+.colfilter-bar {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-sec);
+}
+body.mode-window .colfilter-bar {
+  margin: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cf-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 22px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-light);
+  color: var(--accent-hover);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.cf-chip-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 320px;
+  height: 100%;
+  padding: 0 2px 0 9px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cf-chip-open b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.cf-chip-x {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.cf-chip-x:hover { background: var(--accent-glow); }
+.cf-clear-all {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--accent-hover);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cf-bar-count { margin-left: auto; color: var(--text-hint); }
+
+/* ---- Save button and the Saved list (both views) ---- */
+.save-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
+.save-query-btn .save-star { flex-shrink: 0; color: var(--text-faint); }
+.save-query-btn[data-state="saved"] {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+.save-query-btn[data-state="saved"] .save-star { color: var(--accent-hover); fill: var(--accent); }
+.save-query-btn[data-state="changed"] { border-color: var(--accent); color: var(--accent-hover); }
+.save-query-btn[data-state="changed"] .save-star { color: var(--accent); }
+.save-query-btn:disabled { opacity: .5; cursor: default; }
+.save-query-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.save-query-dot[hidden] { display: none; }
+.save-query-key { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--text-faint); }
+body:not(.mode-window) .save-query-key { display: none; }
+
+body.mode-window .editor-tools .save-query-btn[data-state="saved"] {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+body.mode-window .editor-tools .save-query-btn[data-state="changed"] { border-color: var(--accent); color: var(--accent-hover); }
+
+.save-name-pop {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 340px;
+  padding: 12px;
+  background: var(--white);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font);
+}
+.save-name-label { font-size: 11.5px; font-weight: 600; color: var(--text-sec); }
+.save-name-input {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--field-bg);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--ink);
+}
+.save-name-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.save-name-hint { font-size: 11px; color: var(--text-hint); white-space: nowrap; }
+.save-name-btns { display: flex; gap: 6px; }
+.save-name-btns .btn { width: auto; white-space: nowrap; }
+
+.saved-count { font-weight: 400; color: var(--text-faint); }
+.saved-count[hidden] { display: none; }
+body:not(.mode-window) .saved-count::before { content: "· "; }
+.saved-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field-bg);
+  color: var(--text-faint);
+}
+.saved-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+.saved-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--ink);
+}
+.saved-row.cur { background: var(--accent-light); }
+.saved-foot {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-hint);
+}
+.saved-foot-key { margin-left: 4px; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+
+/* Full window: Saved is a toolbar button like Clear, with its count and ▾;
+   a hairline sets the two apart from Format, Limit, Clear and Run. */
+body.mode-window #saved-btn {
+  height: auto;
+  gap: 6px;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field-bg);
+  color: var(--text-mid);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 18px;
+}
+body.mode-window #saved-btn:hover,
+body.mode-window #saved-btn[aria-expanded="true"] { background: var(--hover); }
+body.mode-window .saved-count { font-family: var(--mono); font-size: 11px; }
+body.mode-window .saved-caret { flex-shrink: 0; color: var(--text-faint); }
+.tools-sep { width: 1px; height: 20px; margin: 0 2px; background: var(--rule, var(--border)); }
+/* While INSERT or FIND has the row, these step aside with Format and Clear. */
+body.mode-window .operator-bar:is(.inserting, .finding) :is(.save-wrap, .saved-wrap, .tools-sep) { display: none; }
+/* A narrow editor column (a row drawer open) folds Save and Saved to their
+   icons, then drops Run's shortcut and its "query", so the toolbar stays one
+   line at 1280/1366/1440. The tooltips still say it all. */
+@container (max-width: 900px) {
+  body.mode-window :is(.save-query-label, .save-query-key, .tools-sep),
+  body.mode-window #saved-btn :is(.history-corner-label, .saved-count) { display: none; }
+}
+@container (max-width: 800px) {
+  body.mode-window .run-key { display: none; }
+}
+@container (max-width: 730px) {
+  body.mode-window .run-word { display: none; }
+}
+@container (max-width: 660px) {
+  body.mode-window .editor-tools { gap: 4px; }
+  body.mode-window .saved-caret { display: none; }
+  body.mode-window #format-btn { padding-left: 6px; padding-right: 6px; }
+  body.mode-window .op-chip { padding-left: 7px; padding-right: 7px; }
+}
+
+/* On the full window's toolbar the pop-ups sit inside .editor-tools, whose
+   big bordered .btn look must not reach their own small buttons. */
+body.mode-window .editor-tools .save-name-pop .btn { height: 26px; padding: 0 12px; font-size: 12px; line-height: normal; }
+body.mode-window .editor-tools .save-name-pop .btn-primary { background: var(--ink); border-color: var(--ink); color: var(--white); }
+body.mode-window .editor-tools .save-name-pop .btn-primary:hover { background: var(--ink-soft); }
+body.mode-window .editor-tools .history-popover .btn-text {
+  height: auto;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-hint);
+  font-size: 11.5px;
+}
+body.mode-window .editor-tools .history-popover .btn-text:hover { background: var(--btn-soft-hover); color: var(--text-sec); }
+
+/* ---- Full-window rail with names (body.rail-open) ---- */
+/* Hidden in the overlay and in the icon-only rail. */
+.rail-name,
+.rail-sub,
+.rail-group { display: none; }
+
+body.mode-window.rail-open .shell { grid-template-columns: 200px minmax(0, 1fr); }
+
+body.mode-window.rail-open .topbar {
+  align-items: stretch;
+  gap: 2px;
+  padding: 12px 8px;
+}
+body.mode-window.rail-open .tabs { gap: 2px; }
+
+/* The logo with the product name beside it. */
+body.mode-window.rail-open .logo { align-self: flex-start; margin: 0 0 6px 6px; }
+body.mode-window.rail-open .topbar-title {
+  display: block !important;
+  margin: -40px 0 12px 44px;
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 28px;
+  color: var(--ink);
+}
+
+body.mode-window.rail-open :is(.tab, .rail-btn, .topbar-icon, .export-btn) {
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  justify-content: flex-start;
+  gap: 11px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 400;
+  text-decoration: none;
+  white-space: nowrap;
+}
+body.mode-window.rail-open :is(.tab, .rail-btn, .topbar-icon, .export-btn) svg { flex-shrink: 0; }
+body.mode-window.rail-open :is(.tab.active, .tab.on, .rail-btn.on) { font-weight: 600; }
+body.mode-window.rail-open .export-wrap { width: 100%; }
+
+body.mode-window.rail-open .tab-label { display: none; }
+body.mode-window.rail-open .rail-name { display: inline; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.mode-window.rail-open .rail-sub {
+  display: inline;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+body.mode-window.rail-open .rail-btn.on .rail-sub { color: var(--accent-hover); }
+
+/* Headings take the place of the rule above Data model. */
+body.mode-window.rail-open .rail-group {
+  display: block;
+  padding: 12px 10px 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-hint);
+}
+body.mode-window.rail-open .rail-group-panels { order: 9; }
+body.mode-window.rail-open .tab[data-tab="datamodel"] { margin-top: 0; }
+body.mode-window.rail-open .tab[data-tab="datamodel"]::before { display: none; }
+
+/* The names toggle, under the window controls. */
+body.mode-window .rail-toggle { margin-top: 4px; color: var(--text-hint); }
+body.mode-window:not(.rail-open) .rail-toggle svg { transform: rotate(180deg); }
+body.mode-window.rail-open .rail-toggle { border-top: 1px solid var(--border); border-radius: 0 0 8px 8px; }
+
+/* The wider rail takes room from the main column: the row drawer starts
+   floating over the results, and the explorer narrows, that much sooner. */
+@media (max-width: 1410px) {
+  body.mode-window.rail-open #vql-panel { position: relative; }
+  body.mode-window.rail-open .inspector {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 15;
+    box-shadow: -10px 0 30px rgba(22,21,15,.16);
+  }
+}
+@media (max-width: 1144px) {
+  body.mode-window.rail-open #tab-datamodel,
+  body.mode-window.rail-open[data-explorer="history"] .explorer-history,
+  body.mode-window.rail-open[data-explorer="saved"] .explorer-saved { width: 240px; }
 }

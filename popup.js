@@ -22,6 +22,8 @@ const queryTime = $("#query-time");
 const resultsPanel = $("#results-panel");
 const resultsCount = $("#results-count");
 const resultsContainer = $("#results-container");
+const colFilterBar = $("#colfilter-bar");
+const colFilterMenu = $("#colfilter-menu");
 const copyBtn = $("#copy-btn");
 const exportCsvBtn = $("#export-csv-btn");
 const historyBtn = $("#history-btn");
@@ -96,12 +98,17 @@ let activeQueryToken = null;
 // ===================== WINDOW MODE =====================
 if (WINDOW_MODE) {
   document.body.classList.add("mode-window");
+  // The rail shows its names unless they were hidden last time (init reads
+  // that); on from the first paint, so it doesn't jump open.
+  document.body.classList.add("rail-open");
   // The workbench's status bar holds the vault identity; the top bar itself
   // becomes the rail.
   $("#status-left").appendChild($(".topbar-conn"));
   expandBtn.classList.add("hidden");
   collapseBtn.classList.remove("hidden");
-  // The editor's own actions sit on its toolbar, right of the operator chips.
+  // The editor's own actions sit on its toolbar, right of the operator chips:
+  // Save and the Saved list first, then Format, Limit, Clear and Run.
+  editorTools.prepend($("#save-wrap"), $(".saved-wrap"));
   editorTools.append(clearBtn, cancelBtn, runBtn);
   runBtn.innerHTML = RUN_LABEL;
   resultsContainer.dataset.empty = `Run a query to see its rows here · ${RUN_KEY_LABEL}`;
@@ -114,6 +121,15 @@ expandBtn.addEventListener("click", async () => {
   // of several open Vault tabs the panel was working in.
   const query = new URLSearchParams({ mode: "window" });
   if (state.domain) query.set("vault", state.domain);
+  // The editor's query goes along too, through session storage rather than the
+  // URL (it would land in the browser history). The window takes it once.
+  if (vqlInput.value.trim()) {
+    const id = Math.random().toString(36).slice(2, 10);
+    try {
+      await chrome.storage.session.set({ [`handoff:${id}`]: vqlInput.value });
+      query.set("handoff", id);
+    } catch (e) { /* no session storage: the window opens without the query */ }
+  }
   const url = `${chrome.runtime.getURL("popup.html")}?${query}`;
   await chrome.tabs.create({ url });
   closeOverlay();
@@ -156,7 +172,7 @@ if (!WINDOW_MODE) {
   // Query these by selector: their consts are declared far below, so naming
   // them here would hit the temporal dead zone at load. #export-menu stays open
   // and grows while a config report runs, so it must be measured too.
-  const floatingPanels = [acDropdown, historyPopover, $("#saved-popover"), $("#export-menu")];
+  const floatingPanels = [acDropdown, historyPopover, $("#saved-popover"), $("#export-menu"), $("#colfilter-menu")];
   let lastHeight = 0;
 
   const reportHeight = () => {
@@ -184,7 +200,7 @@ if (!WINDOW_MODE) {
 document.addEventListener("DOMContentLoaded", async () => {
   const saved = await chrome.storage.local.get([
     "vaultDomain", "queryHistory", "queryTabs", "queryLimit",
-    "valueMode", "explorerPanel", "editorHeight", "savedQueries",
+    "valueMode", "explorerPanel", "editorHeight", "savedQueries", "railOpen",
   ]);
   if (VALUE_MODES.includes(saved.valueMode)) valueMode = saved.valueMode;
   paintValueMode();
@@ -196,7 +212,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initRecordOffer();
   // Per-vault data loads once autoConnect knows the domain; caches from older
   // versions are moved to per-vault keys by migrateVaultCaches().
-  if (WINDOW_MODE) initWorkbench(saved);
+  if (WINDOW_MODE) initWorkbench(saved, await takeHandedQuery());
   renderHistory();
 
   try {
@@ -220,6 +236,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     // No vault tab to read: the panel stays disconnected.
   }
 });
+
+// The query the panel had in its editor when it opened this window, read once
+// and removed, so a reload of the window doesn't add it again.
+async function takeHandedQuery() {
+  const id = PAGE_PARAMS.get("handoff");
+  if (!id) return "";
+  const key = `handoff:${id}`;
+  try {
+    const got = await chrome.storage.session.get(key);
+    await chrome.storage.session.remove(key);
+    return typeof got[key] === "string" ? got[key] : "";
+  } catch (e) {
+    return "";
+  }
+}
 
 // The vault this page was opened for, when that is known rather than guessed:
 // the overlay from the Vault page it is embedded in, the full window from the
@@ -683,6 +714,7 @@ vqlInput.addEventListener("keydown", (e) => {
       if (historyNavIndex === -1 && !isEmpty) return;
       e.preventDefault();
       historyNavIndex = Math.min(historyNavIndex + 1, navigable.length - 1);
+      setEditorSavedId(null);
       vqlInput.value = navigable[historyNavIndex].query;
       vqlInput.setSelectionRange(vqlInput.value.length, vqlInput.value.length);
       editorChanged();
@@ -697,6 +729,7 @@ vqlInput.addEventListener("keydown", (e) => {
       historyNavIndex = -1;
       vqlInput.value = "";
     } else {
+      setEditorSavedId(null);
       vqlInput.value = navigable[historyNavIndex].query;
       vqlInput.setSelectionRange(vqlInput.value.length, vqlInput.value.length);
     }
@@ -1013,10 +1046,12 @@ document.addEventListener("click", (e) => {
     set(v) {
       desc.set.call(this, v);
       queueMicrotask(paintFindChip);
+      queueMicrotask(afterEditorWrite);   // the Save button follows it too
     },
   });
 }
 vqlInput.addEventListener("input", paintFindChip);
+vqlInput.addEventListener("input", afterEditorWrite);
 // After the whole script has run: the tokenizer's patterns are defined further down.
 queueMicrotask(paintFindChip);
 
@@ -1629,12 +1664,176 @@ copyBtn.addEventListener("click", async () => {
 
 exportCsvBtn.addEventListener("click", () => {
   if (!lastResultData?.data?.length) return;
-  const rows = lastResultData.data;
-  const keys = resultColumns(rows);
-  let csv = keys.map(csvEsc).join(",") + "\n";
-  for (const row of rows) csv += keys.map((k) => csvEsc(exportText(row[k]))).join(",") + "\n";
-  downloadBlob(new Blob([csv], { type: "text/csv" }), `vql_results_${Date.now()}.csv`);
+  withExportBusy(exportCsvBtn, async () => {
+    let rows = lastResultData.data;
+    try {
+      rows = await namedExportRows(rows);
+    } catch (e) { /* names unavailable: the IDs go out */ }
+    const keys = resultColumns(rows);
+    let csv = keys.map(csvEsc).join(",") + "\n";
+    for (const row of rows) csv += keys.map((k) => csvEsc(exportText(row[k]))).join(",") + "\n";
+    downloadBlob(new Blob([csv], { type: "text/csv" }), `vql_results_${Date.now()}.csv`);
+  });
 });
+
+// ---- Names, not IDs, for object references in the exports ----------------------
+// Vault answers an object reference field (product__v, a user field) with
+// record IDs, which mean nothing in a report. Before Export CSV or Excel builds
+// its file, each such column's IDs are looked up on the object the field points
+// at and written as the records' names; a multi-value field gets its names
+// comma-separated. An ID whose name can't be read (no access, deleted) stays.
+// The table and Copy JSON keep the IDs. Field targets come from Vault's
+// metadata for the queried object, once per session; names are kept too.
+const REF_NAME_FIELD = { group__sys: "label__v" };   // else name__v
+const REF_ID_RE = /^[A-Za-z0-9_-]+$/;
+const REF_BATCH = 200;                               // IDs per lookup query
+const refTargetCache = new Map();                    // `${domain}|${target}` -> Promise<Map(field -> object)>
+const refNameCache = new Map();                      // `${domain}|${object}|${id}` -> name
+
+// field -> the object it points at, for the object a query read from.
+function refFieldTargets(target) {
+  const t = String(target || "").toLowerCase();
+  if (!state.sessionId || !/^[a-z_][a-z0-9_]*$/.test(t) || (PLAIN_TARGETS.has(t) && t !== "documents")) {
+    return Promise.resolve(new Map());
+  }
+  const key = `${state.domain}|${t}`;
+  if (!refTargetCache.has(key)) {
+    refTargetCache.set(key, (async () => {
+      const out = new Map();
+      const res = await apiCall(t === "documents" ? "/metadata/objects/documents/properties" : `/metadata/vobjects/${encodeURIComponent(t)}`);
+      if (!apiOk(res)) { refTargetCache.delete(key); return out; }
+      // Documents: ObjectReference properties name their object (User/Group too).
+      for (const p of res.data?.properties || []) {
+        const o = refObjectOf(p);
+        if (o && p.name) out.set(String(p.name).toLowerCase(), o);
+      }
+      // Objects: reference and parent fields carry object.name; lookups return
+      // the looked-up value already, not an ID.
+      for (const f of res.data?.object?.fields || []) {
+        const o = String(f.object?.name || "").toLowerCase();
+        if (o && f.name && !/lookup/i.test(f.type || "") && /^[a-z_][a-z0-9_]*$/.test(o)) out.set(String(f.name).toLowerCase(), o);
+      }
+      return out;
+    })());
+  }
+  return refTargetCache.get(key);
+}
+
+// Fills refNameCache for these IDs of one object, REF_BATCH at a time.
+async function lookUpRefNames(object, ids) {
+  const nameField = REF_NAME_FIELD[object] || "name__v";
+  const todo = ids.filter((id) => REF_ID_RE.test(id) && !refNameCache.has(`${state.domain}|${object}|${id}`));
+  for (let i = 0; i < todo.length; i += REF_BATCH) {
+    const batch = todo.slice(i, i + REF_BATCH);
+    const list = batch.map((id) => `'${vqlStr(id)}'`).join(", ");
+    const q = `SELECT id, ${nameField} FROM ${object} WHERE id CONTAINS (${list})`;
+    const res = await apiCall("/query", "POST", `q=${encodeURIComponent(q)}`);
+    if (!apiOk(res)) return;   // e.g. no access to the object: its IDs stay
+    for (const r of res.data?.data || []) {
+      const name = r[nameField];
+      if (r.id != null && name != null && name !== "") refNameCache.set(`${state.domain}|${object}|${r.id}`, String(name));
+    }
+    // Asked and not found (deleted, hidden): remembered, so the next export
+    // doesn't ask again; null keeps the ID.
+    for (const id of batch) {
+      const k = `${state.domain}|${object}|${id}`;
+      if (!refNameCache.has(k)) refNameCache.set(k, null);
+    }
+  }
+}
+
+// The reference columns of these rows: column -> the object it points at.
+async function refColumns(rows, target) {
+  const targets = await refFieldTargets(target);
+  const cols = new Map();
+  for (const k of resultColumns(rows)) {
+    if (k !== "id" && targets.has(k.toLowerCase())) cols.set(k, targets.get(k.toLowerCase()));
+  }
+  return cols;
+}
+
+// Looks up every ID those columns hold, one object at a time.
+async function lookUpColumnNames(rows, cols) {
+  const byObject = new Map();
+  for (const [k, object] of cols) {
+    const set = byObject.get(object) || new Set();
+    for (const r of rows) {
+      for (const x of Array.isArray(r[k]) ? r[k] : [r[k]]) {
+        if (x !== null && x !== undefined && x !== "" && typeof x !== "object") set.add(String(x));
+      }
+    }
+    byObject.set(object, set);
+  }
+  for (const [object, ids] of byObject) await lookUpRefNames(object, [...ids]);
+}
+
+// One value of a reference column with its IDs as names (an ID without a
+// known name stays).
+function refNamed(object, v) {
+  const name = (x) => (x === null || x === undefined || typeof x === "object" ? x
+    : refNameCache.get(`${state.domain}|${object}|${x}`) ?? x);
+  return Array.isArray(v) ? v.map(name) : name(v);
+}
+
+// The rows with each reference column's IDs swapped for names (copies; the
+// results themselves are untouched).
+async function namedExportRows(rows) {
+  const cols = await refColumns(rows, resultMeta?.target || queryObjectName);
+  if (!cols.size) return rows;
+  await lookUpColumnNames(rows, cols);
+  return rows.map((r) => {
+    const out = { ...r };
+    for (const [k, object] of cols) out[k] = refNamed(object, r[k]);
+    return out;
+  });
+}
+
+// The table shows names too, once they're in: after a run, the same lookup
+// (and cache) as the exports. Until then, and for an ID without a readable
+// name, the ID shows. Kept on the result's meta, so a tab comes back named.
+async function nameTableRefs() {
+  const meta = resultMeta;
+  const rows = queryRows;
+  if (!meta || !rows.length || meta.refCols || meta.refPending) return;
+  meta.refPending = true;
+  try {
+    const cols = await refColumns(rows, meta.target || queryObjectName);
+    for (const k of meta.subKeys || []) cols.delete(k);
+    if (!cols.size) return;
+    await lookUpColumnNames(rows, cols);
+    meta.refCols = new Map([...cols].map(([k, o]) => [k.toLowerCase(), o]));
+  } catch (e) {
+    return;   // names unavailable: the IDs stay
+  } finally {
+    meta.refPending = false;
+  }
+  if (resultMeta !== meta) return;   // another run or tab since: it paints itself
+  // A column filter picked on the IDs would no longer match what shows.
+  for (const k of meta.refCols.keys()) {
+    for (const f of [...resultsView.colFilters.keys()]) if (f.toLowerCase() === k) resultsView.colFilters.delete(f);
+  }
+  if (WINDOW_MODE) {
+    if (resultsView.active) paintResultsView();
+    renderInspector();
+  } else {
+    paintPanelPage();
+  }
+}
+
+// The button says it's busy while names are looked up; a failed lookup still
+// exports (with IDs), and the button always comes back.
+async function withExportBusy(btn, job) {
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Getting names…";
+  try {
+    await job();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
 
 // Saves a file through a temporary link.
 function downloadBlob(blob, name) {
@@ -1692,6 +1891,8 @@ function resultColumns(rows) {
 function exportText(val) {
   if (val === null || val === undefined) return "";
   if (isSubValue(val)) return JSON.stringify(val.data);
+  const list = plainListText(val);   // a multi-value field: its values, no ["…"]
+  if (list !== null) return list;
   if (typeof val === "object") return JSON.stringify(val);
   return val;
 }
@@ -1832,13 +2033,20 @@ ${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" Co
   return zip.toBlob();
 }
 
-function downloadXlsx(rows) {
-  downloadBlob(buildXlsxBlob(rows), `vql_results_${Date.now()}.xlsx`);
+// Reference IDs become names first; if that fails, the file still comes out.
+async function downloadXlsx(rows) {
+  let named = rows;
+  try {
+    named = await namedExportRows(rows);
+  } catch (e) {
+    named = rows;
+  }
+  downloadBlob(buildXlsxBlob(named), `vql_results_${Date.now()}.xlsx`);
 }
 
 exportXlsxBtn.addEventListener("click", () => {
   if (!lastResultData?.data?.length) return;
-  downloadXlsx(lastResultData.data);
+  withExportBusy(exportXlsxBtn, () => downloadXlsx(lastResultData.data));
 });
 
 // Minimal ZIP builder (no compression, store only — works for xlsx)
@@ -1986,6 +2194,7 @@ historyList.addEventListener("click", (e) => {
 function loadHistoryQuery(index) {
   const entry = state.history[index];
   if (!entry) return;
+  setEditorSavedId(null);
   vqlInput.value = entry.query;
   historyNavIndex = -1;
   activatePane("query");
@@ -2010,6 +2219,13 @@ const savedBtn = $("#saved-btn");
 const savedPopover = $("#saved-popover");
 const savedList = $("#saved-list");
 const savedRailList = $("#saved-rail-list");
+const savedSearch = $("#saved-search");
+const savedCount = $("#saved-count");
+const saveQueryBtn = $("#save-query-btn");
+const saveQueryLabel = $("#save-query-label");
+const saveQueryDot = $("#save-query-dot");
+const saveNamePop = $("#save-name-pop");
+const saveNameInput = $("#save-name-input");
 
 function persistSaved() {
   chrome.storage.local.set({ savedQueries });
@@ -2026,8 +2242,10 @@ function savedRowHtml(s) {
     return `<div class="saved-row renaming" data-id="${s.id}">` +
       `<input class="saved-rename-input" type="text" maxlength="60" value="${esc(s.name)}" aria-label="Query name" /></div>`;
   }
+  // The one the editor holds now is marked.
+  const cur = s.id === currentSaved()?.id;
   return (
-    `<div class="saved-row" data-id="${s.id}" title="${esc(s.query)}">` +
+    `<div class="saved-row${cur ? " cur" : ""}" data-id="${s.id}" title="${esc(s.query)}">` +
     `<button type="button" class="saved-load">` +
     `<span class="saved-name">${esc(s.name)}</span>` +
     `<span class="saved-q">${esc(s.query.replace(/\s+/g, " "))}</span></button>` +
@@ -2041,24 +2259,38 @@ function savedRowHtml(s) {
 }
 
 function renderSaved() {
-  const html = savedQueries.length
-    ? savedQueries.map(savedRowHtml).join("")
-    : '<div class="saved-empty">No saved queries yet. Write one, then “Save current”.</div>';
-  if (savedList) savedList.innerHTML = html;
+  const empty = '<div class="saved-empty">No saved queries yet. Write one, then Save (Ctrl S).</div>';
+  const html = savedQueries.length ? savedQueries.map(savedRowHtml).join("") : empty;
   if (savedRailList) savedRailList.innerHTML = html;
+  // The drop-down list narrows to its search box.
+  if (savedList) {
+    const q = savedSearch.value.trim().toLowerCase();
+    const hits = q
+      ? savedQueries.filter((s) => s.name.toLowerCase().includes(q) || s.query.toLowerCase().includes(q))
+      : savedQueries;
+    savedList.innerHTML = !savedQueries.length ? empty
+      : hits.length ? hits.map(savedRowHtml).join("")
+      : '<div class="saved-empty">No saved query matches.</div>';
+  }
   // Focus whichever rename input is actually on screen (overlay or rail).
   if (savedRenameId) {
     for (const inp of document.querySelectorAll(".saved-rename-input")) {
       if (inp.offsetParent !== null) { inp.focus(); inp.select(); break; }
     }
   }
+  savedCount.textContent = savedQueries.length ? String(savedQueries.length) : "";
+  savedCount.hidden = !savedQueries.length;
+  paintSaveBtn();
 }
+
+const newSavedId = () => `sq_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 function saveCurrentQuery() {
   const q = vqlInput.value.trim();
   if (!q) return;
-  const id = `sq_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const id = newSavedId();
   savedQueries.unshift({ id, name: defaultSavedName(q), query: q, ts: Date.now() });
+  setEditorSavedId(id);
   persistSaved();
   savedRenameId = id;            // drop straight into naming it
   renderSaved();
@@ -2086,7 +2318,13 @@ function removeSaved(id) {
 function loadSavedIntoEditor(id) {
   const s = savedQueries.find((x) => x.id === id);
   if (!s) return;
+  // The full window keeps the query you were on: it opens in a new tab.
+  if (WINDOW_MODE) {
+    const cur = vqlInput.value.trim();
+    if (cur && cur !== s.query) newQueryTab();
+  }
   vqlInput.value = s.query;
+  setEditorSavedId(s.id);
   historyNavIndex = -1;
   activatePane("query");
   vqlInput.focus();
@@ -2099,17 +2337,178 @@ function closeSaved() {
   savedBtn.setAttribute("aria-expanded", "false");
 }
 
-// The overlay pill drops the list under itself, closing History and autocomplete.
+// The Saved button drops the list under itself, closing History, autocomplete
+// and the Save name box. The search starts empty and takes the keyboard.
+function openSavedList() {
+  closeHistory();
+  closeSaveName();
+  hideAc();
+  savedSearch.value = "";
+  savedPopover.classList.remove("hidden");
+  savedBtn.setAttribute("aria-expanded", "true");
+  renderSaved();
+  savedSearch.focus();
+}
+
 savedBtn.addEventListener("click", () => {
-  const wasHidden = savedPopover.classList.contains("hidden");
+  if (savedPopover.classList.contains("hidden")) openSavedList();
+  else closeSaved();
+});
+savedSearch.addEventListener("input", renderSaved);
+// Enter opens the first match; Esc closes.
+savedSearch.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const first = savedList.querySelector(".saved-row[data-id]");
+    if (first) { loadSavedIntoEditor(first.dataset.id); closeSaved(); }
+  } else if (e.key === "Escape") {
+    e.stopPropagation();
+    closeSaved();
+    savedBtn.focus();
+  }
+});
+
+// ---- Save button --------------------------------------------------------------
+// Says whether the editor's query is saved: "Save" (new), "Saved" (gold, as
+// saved), "Save changes" (a saved query since edited). The first save asks for
+// a name; later ones update the query in place. Which saved query the editor
+// holds is remembered per tab in the full window, once for the overlay; a query
+// typed to match a saved one counts as that one. Replacing the query
+// (History, Clear, Query this record, a document type's query) lets go of it,
+// so "Save changes" can't write an unrelated query over a saved one.
+let panelSavedId = null;
+
+function editorSavedId() {
+  return WINDOW_MODE ? activeTab()?.savedId ?? null : panelSavedId;
+}
+
+function setEditorSavedId(id) {
+  if (!WINDOW_MODE) { panelSavedId = id; return; }
+  const t = activeTab();
+  if (t && (t.savedId ?? null) !== id) { t.savedId = id; persistTabsSoon(); }
+}
+
+// A query that now reads FROM another object is a different query, not an
+// edit of the saved one (select-all and retype shouldn't offer to overwrite).
+function currentSaved() {
+  const q = vqlInput.value.trim();
+  const id = editorSavedId();
+  const byId = id && savedQueries.find((s) => s.id === id);
+  if (byId) {
+    const was = defaultSavedName(byId.query), now = defaultSavedName(q);
+    const moved = was !== "Saved query" && now !== "Saved query" && was.toLowerCase() !== now.toLowerCase();
+    if (!moved) return byId;
+  }
+  return (q && savedQueries.find((s) => s.query === q)) || null;
+}
+
+function saveStatus() {
+  const q = vqlInput.value.trim();
+  if (!q) return { status: "empty", s: null };
+  const s = currentSaved();
+  if (!s) return { status: "new", s: null };
+  return { status: s.query === q ? "saved" : "changed", s };
+}
+
+function paintSaveBtn() {
+  const { status, s } = saveStatus();
+  saveQueryBtn.dataset.state = status;
+  saveQueryLabel.textContent = status === "saved" ? "Saved" : status === "changed" ? "Save changes" : "Save";
+  // Its name even when the narrow toolbar shows the star alone.
+  saveQueryBtn.setAttribute("aria-label", saveQueryLabel.textContent);
+  saveQueryDot.hidden = status !== "changed";
+  saveQueryBtn.disabled = status === "empty";
+  saveQueryBtn.title = status === "saved" ? `Saved as “${s.name}”`
+    : status === "changed" ? `Save changes to “${s.name}” · Ctrl S`
+    : "Save this query · Ctrl S";
+  // Mark the open one in both lists without redrawing them (a rename in
+  // progress keeps its focus).
+  for (const row of document.querySelectorAll(".saved-row[data-id]")) row.classList.toggle("cur", row.dataset.id === s?.id);
+}
+
+// After anything writes the editor. An emptied editor holds no saved query.
+function afterEditorWrite() {
+  if (!vqlInput.value.trim()) setEditorSavedId(null);
+  paintSaveBtn();
+}
+
+function onSaveQuery() {
+  const { status, s } = saveStatus();
+  if (status === "empty" || status === "saved") return;
+  if (status === "changed") {
+    s.query = vqlInput.value.trim();
+    s.ts = Date.now();
+    setEditorSavedId(s.id);
+    persistSaved();
+    renderSaved();
+    return;
+  }
+  openSaveName();
+}
+
+// A renamed tab's title, else the query's FROM object.
+function suggestedSaveName() {
+  return (WINDOW_MODE && activeTab()?.title) || defaultSavedName(vqlInput.value.trim());
+}
+
+function openSaveName() {
   closeSaved();
   closeHistory();
   hideAc();
-  if (wasHidden) {
-    savedPopover.classList.remove("hidden");
-    savedBtn.setAttribute("aria-expanded", "true");
-    renderSaved();
-  }
+  saveNameInput.value = suggestedSaveName();
+  saveNamePop.classList.remove("hidden");
+  saveQueryBtn.setAttribute("aria-expanded", "true");
+  saveNameInput.focus();
+  saveNameInput.select();
+}
+
+function closeSaveName(refocus = false) {
+  if (saveNamePop.classList.contains("hidden")) return;
+  saveNamePop.classList.add("hidden");
+  saveQueryBtn.setAttribute("aria-expanded", "false");
+  if (refocus) saveQueryBtn.focus();
+}
+
+function confirmSaveName() {
+  const q = vqlInput.value.trim();
+  if (!q) { closeSaveName(); return; }
+  const id = newSavedId();
+  const name = saveNameInput.value.trim().slice(0, 60) || defaultSavedName(q);
+  savedQueries.unshift({ id, name, query: q, ts: Date.now() });
+  setEditorSavedId(id);
+  persistSaved();
+  closeSaveName();
+  renderSaved();
+  vqlInput.focus();
+}
+
+saveQueryBtn.addEventListener("click", () => {
+  if (!saveNamePop.classList.contains("hidden")) closeSaveName(true);
+  else onSaveQuery();
+});
+$("#save-name-ok").addEventListener("click", confirmSaveName);
+$("#save-name-cancel").addEventListener("click", () => closeSaveName(true));
+saveNameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); confirmSaveName(); }
+  else if (e.key === "Escape") { e.stopPropagation(); closeSaveName(true); }
+});
+// A click outside the name box closes it.
+document.addEventListener("click", (e) => {
+  if (saveNamePop.classList.contains("hidden")) return;
+  if (!e.composedPath().includes($("#save-wrap"))) closeSaveName();
+});
+
+// Ctrl+S saves, Ctrl+O opens the saved list: both views, when the query editor
+// is up (not the connect screen).
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  const k = e.key.toLowerCase();
+  if (k !== "s" && k !== "o") return;
+  if (vqlPanel.classList.contains("hidden")) return;
+  e.preventDefault();
+  activatePane("query");
+  if (k === "s") onSaveQuery();
+  else openSavedList();
 });
 
 $("#saved-add-btn").addEventListener("click", saveCurrentQuery);
@@ -2195,6 +2594,7 @@ function updateRecordOffer() {
 function queryPageRecord() {
   if (!pageRecord) return;
   activatePane("query");
+  setEditorSavedId(null);
   setQueryText(buildRecordQuery(pageRecord));
   runQuery();
 }
@@ -3736,6 +4136,7 @@ function insertIntoQuery(text, replace = false) {
   paintTabThumb();
 
   if (replace) {
+    setEditorSavedId(null);
     vqlInput.value = text;
   } else {
     const pos = vqlInput.selectionStart;
@@ -4550,12 +4951,13 @@ function renderTable(rows) {
   if (WINDOW_MODE) {
     resetResultsView();
     paintResultsView();
-    return;
+  } else {
+    // The panel pages too: a fetch-all query can return thousands of rows.
+    resultsView.page = 0;
+    paintPanelPage();
   }
-
-  // The panel pages too: a fetch-all query can return thousands of rows.
-  resultsView.page = 0;
-  paintPanelPage();
+  // Reference columns switch from IDs to names when the lookup comes back.
+  nameTableRefs();
 }
 
 // The panel's table: RESULTS_PAGE rows of queryRows at a time, under the same
@@ -4564,20 +4966,20 @@ function renderTable(rows) {
 function paintPanelPage() {
   const rows = queryRows;
   const keys = resultKeys;
-  const pages = Math.max(1, Math.ceil(rows.length / RESULTS_PAGE));
+  // The rows the column filters leave, paged; row numbers stay queryRows'.
+  const idx = visibleRowIndices();
+  const pages = Math.max(1, Math.ceil(idx.length / RESULTS_PAGE));
   resultsView.page = Math.min(Math.max(0, resultsView.page), pages - 1);
   const start = resultsView.page * RESULTS_PAGE;
-  const end = Math.min(rows.length, start + RESULTS_PAGE);
+  const slice = idx.slice(start, start + RESULTS_PAGE);
+  const end = start + slice.length;
   const editableFields = getEditableFields(queryObjectName);
   const hasId = keys.includes("id");
   let html = '<table class="results-table"><thead><tr>';
-  for (const key of keys) {
-    const isId = key === "id";
-    html += `<th class="${isId ? "col-id" : ""}"${columnHeaderAttr(key)}>${esc(key)}</th>`;
-  }
+  for (const key of keys) html += resultHeaderHtml(key);
   html += "</tr></thead><tbody>";
 
-  for (let ri = start; ri < end; ri++) {
+  for (const ri of slice) {
     const row = rows[ri];
     html += `<tr data-row="${ri}">`;
     for (const key of keys) {
@@ -4587,7 +4989,7 @@ function paintPanelPage() {
         continue;
       }
       const edit = pendingEdits[`${ri}:${key}`];
-      const display = edit ? edit.newVal : displayValue(val);
+      const display = edit ? edit.newVal : shownValue(key, val);
       const isId = key === "id";
       const canEdit = hasId && cellEditable(ri, key, editableFields);
 
@@ -4604,6 +5006,7 @@ function paintPanelPage() {
     html += "</tr>";
   }
 
+  if (!slice.length) html += noMatchRowHtml(keys.length);
   html += "</tbody></table>";
 
   // Which cells edit is decided per cell; the hint only needs id in the SELECT.
@@ -4616,9 +5019,13 @@ function paintPanelPage() {
   resultsContainer.innerHTML = html;
 
   resultsFooter.classList.toggle("paged", pages > 1);
-  resultsRange.textContent = `Showing ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${rows.length.toLocaleString()}`;
+  const filtered = idx.length !== rows.length ? ` (filtered from ${rows.length.toLocaleString()})` : "";
+  resultsRange.textContent = idx.length
+    ? `Showing ${(start + 1).toLocaleString()}–${end.toLocaleString()} of ${idx.length.toLocaleString()}${filtered}`
+    : `0 of ${rows.length.toLocaleString()}`;
   pagePrev.disabled = resultsView.page === 0;
   pageNext.disabled = resultsView.page >= pages - 1;
+  paintColFilterBar();
 
   // Grow with the result set up to RESULT_ROW_CAP rows, then scroll.
   resultsContainer.style.maxHeight = "";
@@ -4637,6 +5044,8 @@ function paintPanelPage() {
 // One listener for the life of the page rather than one per cell per render:
 // the table is rebuilt on every run, page turn and filter keystroke.
 resultsContainer.addEventListener("click", (e) => {
+  const cfBtn = e.target.closest(".cf-btn");
+  if (cfBtn) { toggleColFilter(cfBtn.dataset.col, cfBtn); return; }
   if (e.target.closest(".sub-table")) return;
   const tr = e.target.closest("tbody tr[data-row]");
   if (!tr) return;
@@ -5364,14 +5773,22 @@ function renderDrillChildren(t) {
   const subs = t.subtypes || [];
   if (!t.checkedAt && !subs.length) return '<div class="dt-children"><div class="dt-drill-empty">Loading subtypes…</div></div>';
   if (!subs.length) return '<div class="dt-children"><div class="dt-drill-empty">No subtypes</div></div>';
+  // Same order as the type list: most documents first once counted (not counted
+  // or failed go last), A-Z for ties and before any count.
+  const count = (s) => dtDrillCount.get(subId(t.name, s.name)) ?? -1;
+  const ordered = [...subs].sort(
+    (a, b) => count(b) - count(a) || String(a.label || a.name).localeCompare(String(b.label || b.name))
+  );
   let h = '<div class="dt-children">';
-  for (const s of subs) {
+  for (const s of ordered) {
     const sk = subId(t.name, s.name);
     const open = dtSubExpanded.has(sk);
     const cls = dtClasses.get(sk);
-    const canTwist = !cls || cls.state === "loading" || (cls.list && cls.list.length > 0) || open;
+    // A caret only once we know the subtype has classifications (or its check
+    // failed, so opening it shows the error and retries). No caret = can't open.
+    const canTwist = open || cls?.state === "error" || (cls?.state === "done" && cls.list.length > 0);
     h += `<div class="dt-sub" data-sub="${esc(s.name)}">`;
-    h += `<div class="dt-sub-row">`;
+    h += `<div class="dt-sub-row${canTwist ? "" : " dt-sub-leaf"}">`;
     h += canTwist ? `<span class="dt-twist${open ? " open" : ""}">${DT_CARET}</span>` : '<span class="dt-twist leaf"></span>';
     h += `<span class="dt-sub-label">${esc(s.label || s.name)}</span><span class="dt-tier">sub</span>`;
     h += drillCountCell(sk);
@@ -5473,6 +5890,17 @@ async function toggleTypeDrill(t) {
   if (!dtExpanded.has(t.name)) return;       // collapsed again while fetching
   renderDocTypeList();
   countSubtypes(t);
+  loadAllClasses(t);
+}
+
+// Look up every subtype's classifications as soon as the type opens, so the
+// caret shows only on subtypes that have some.
+async function loadAllClasses(t) {
+  const subs = (t.subtypes || []).filter((s) => s.name);
+  for (let i = 0; i < subs.length; i += DT_BATCH) {
+    if (!dtExpanded.has(t.name)) return;     // collapsed: the rest load on reopen
+    await Promise.all(subs.slice(i, i + DT_BATCH).map((s) => loadClasses(t, s)));
+  }
 }
 
 async function toggleSubDrill(t, sub) {
@@ -5742,8 +6170,13 @@ dtTree.addEventListener("click", (e) => {
   const subRowEl = e.target.closest(".dt-sub");
   const sub = subRowEl ? (type.subtypes || []).find((s) => s.name === subRowEl.dataset.sub) : null;
 
-  // A subtype row (its caret or its body) opens its classifications.
-  if (sub && (twist || e.target.closest(".dt-sub-row"))) { toggleSubDrill(type, sub); return; }
+  // A subtype row (its caret or its body) opens its classifications — only if
+  // it has a caret; a subtype without classifications doesn't open.
+  const subRow = e.target.closest(".dt-sub-row");
+  if (sub && (twist || subRow)) {
+    if (!subRow?.classList.contains("dt-sub-leaf")) toggleSubDrill(type, sub);
+    return;
+  }
   // The type's caret opens its subtypes.
   if (twist) { toggleTypeDrill(type); return; }
   // Classification rows are display-only for now.
@@ -6828,7 +7261,7 @@ let explorerPanel = "model";
 let editorHeight = null;
 
 // Called once, from init, in window mode only.
-function initWorkbench(saved) {
+function initWorkbench(saved, handedQuery) {
   const stored = saved.queryTabs;
   const seen = new Set();
   const tabs = (Array.isArray(stored?.tabs) ? stored.tabs : [])
@@ -6837,9 +7270,22 @@ function initWorkbench(saved) {
       id: t.id,
       title: typeof t.title === "string" && t.title.trim() ? t.title.trim().slice(0, 60) : null,
       query: typeof t.query === "string" ? t.query : "",
+      savedId: typeof t.savedId === "string" ? t.savedId : null,
     }));
   queryTabs = tabs.length ? tabs : [blankTab()];
   activeTabId = queryTabs.some((t) => t.id === stored?.active) ? stored.active : queryTabs[0].id;
+  // The panel's query, when the panel opened this window: into the open tab if
+  // it's empty, else into a new tab, so the window's own query isn't lost.
+  if (handedQuery.trim() && handedQuery !== activeTab().query) {
+    if (activeTab().query.trim()) {
+      const t = blankTab();
+      queryTabs.push(t);
+      activeTabId = t.id;
+    }
+    activeTab().query = handedQuery;
+    activeTab().savedId = null;
+    persistTabs();
+  }
   vqlInput.value = activeTab().query;
 
   // "All" unless the user has picked a cap: the editor has always fetched every
@@ -6849,6 +7295,7 @@ function initWorkbench(saved) {
 
   const ep = saved.explorerPanel;
   setExplorer(ep === "history" ? "history" : ep === "saved" ? "saved" : ep === "none" ? null : "model", false);
+  setRailOpen(saved.railOpen !== false, false);
   const h = Number(saved.editorHeight);
   editorHeight = Number.isFinite(h) && h > 0 ? h : null;
 
@@ -6961,6 +7408,8 @@ function wireWorkbench() {
   railSaved.addEventListener("click", () => toggleExplorer("saved"));
   $("#es-add").addEventListener("click", saveCurrentQuery);
 
+  railToggle.addEventListener("click", () => setRailOpen(!document.body.classList.contains("rail-open")));
+
   inspClose.addEventListener("click", closeInspector);
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || !vqlPanel.classList.contains("row-open")) return;
@@ -6998,6 +7447,22 @@ function setExplorer(panel, save = true) {
   railSaved.setAttribute("aria-pressed", String(panel === "saved"));
   if (save) chrome.storage.local.set({ explorerPanel: panel || "none" });
   if (panel === "model") syncDmToQuery();
+}
+
+// ---- Rail names ---------------------------------------------------------------
+// The rail lists its tools by name (grouped Work in / Side panels / Vault), or
+// shows icons alone. The choice is kept as railOpen.
+const railToggle = $("#rail-toggle");
+
+function setRailOpen(open, save = true) {
+  document.body.classList.toggle("rail-open", open);
+  const label = open ? "Hide names" : "Show names";
+  railToggle.setAttribute("aria-expanded", String(open));
+  railToggle.setAttribute("aria-label", label);
+  railToggle.title = label;
+  if (save) chrome.storage.local.set({ railOpen: open });
+  // The main column changed width under anything anchored to it.
+  closeColFilter();
 }
 
 // A second click on the open panel's button closes it.
@@ -7134,11 +7599,15 @@ function paintEditor() {
 // card takes whatever height is left.
 function fitEditor() {
   if (!WINDOW_MODE) return;
-  // Dragged by the split: that height, whatever the query's length.
+  // Dragged by the split: that height, whatever the query's length. The CSS
+  // min-height (140px) is for the self-sizing editor only; left in place it
+  // overrode the drag, so a short query's editor couldn't be made smaller.
   if (editorHeight) {
+    vqlInput.style.minHeight = "0";
     vqlInput.style.height = `${clampEditorHeight(editorHeight)}px`;
     return;
   }
+  vqlInput.style.minHeight = "";
   const max = Math.max(220, Math.round(window.innerHeight * 0.45));
   vqlInput.style.height = "auto";
   // offsetHeight - clientHeight is the horizontal scrollbar when a line runs
@@ -7460,7 +7929,7 @@ function persistTabs() {
   chrome.storage.local.set({
     queryTabs: {
       active: activeTabId,
-      tabs: queryTabs.map(({ id, title, query }) => ({ id, title, query })),
+      tabs: queryTabs.map(({ id, title, query, savedId }) => ({ id, title, query, savedId: savedId || null })),
     },
   });
 }
@@ -7629,6 +8098,7 @@ function snapshotResults() {
 
 function restoreResults(s) {
   closeColumnsMenu();
+  closeColFilter();
   resultsPanel.querySelector(".save-error")?.remove();
   if (!s) {
     queryRows = [];
@@ -7661,6 +8131,7 @@ function restoreResults(s) {
   resultsFilter.value = resultsView.filter;
   setResultsShown(s.shown);
   paintColumnsButton();
+  paintColFilterBar();
   if (s.table) {
     paintResultsView();
   } else {
@@ -7680,11 +8151,14 @@ let resultKeys = [];
 let resultsView = freshResultsView();
 
 function freshResultsView() {
-  return { active: false, filter: "", page: 0, hidden: new Set(), selected: null };
+  // colFilters: column -> Set of the values its ▾ menu still lets through.
+  return { active: false, filter: "", page: 0, hidden: new Set(), selected: null, colFilters: new Map() };
 }
 
 function resetResultsView() {
   resultsView = freshResultsView();
+  closeColFilter();
+  paintColFilterBar();
   if (!WINDOW_MODE) {
     resultsFooter.classList.remove("paged");
     return;
@@ -7698,22 +8172,53 @@ function resetResultsView() {
 
 function displayValue(v) {
   if (v === null || v === undefined) return "";
+  const list = plainListText(v);
+  if (list !== null) return list;
   return typeof v === "object" ? JSON.stringify(v) : String(v);
+}
+
+// A multi-value field (Vault sends a list, e.g. product__v) as its values,
+// comma-separated as Vault shows them, not as ["…"] JSON. Null for anything
+// that isn't a list of plain values. The table and the exports share it.
+function plainListText(v) {
+  if (!Array.isArray(v) || !v.every((x) => x === null || typeof x !== "object")) return null;
+  return v.filter((x) => x !== null && x !== "").join(", ");
+}
+
+// What a column shows for a value: a reference column's IDs as names once
+// they're looked up (nameTableRefs), anything else as displayValue.
+function shownValue(key, v) {
+  const object = key !== "id" && resultMeta?.refCols?.get(String(key).toLowerCase());
+  return displayValue(object ? refNamed(object, v) : v);
 }
 
 // What the cell shows: an unsaved edit wins over what Vault returned.
 function effectiveValue(ri, key) {
   const edit = pendingEdits[`${ri}:${key}`];
-  return edit ? edit.newVal : displayValue(queryRows[ri]?.[key]);
+  return edit ? edit.newVal : shownValue(key, queryRows[ri]?.[key]);
 }
 
-function visibleRowIndices() {
+// The rows the filter box and the column filters leave. skipKey leaves one
+// column's own filter out, for the counts in that column's menu.
+function visibleRowIndices(skipKey = null) {
   const f = resultsView.filter.trim().toLowerCase();
   const out = [];
   for (let ri = 0; ri < queryRows.length; ri++) {
-    if (!f || resultKeys.some((k) => effectiveValue(ri, k).toLowerCase().includes(f))) out.push(ri);
+    if (f && !resultKeys.some((k) => effectiveValue(ri, k).toLowerCase().includes(f))) continue;
+    if (!passesColFilters(ri, skipKey)) continue;
+    out.push(ri);
   }
   return out;
+}
+
+// The table's body when nothing is left to show: one row under the headers,
+// so the ▾ menus stay there to undo a filter.
+function noMatchRowHtml(colspan) {
+  const f = resultsView.filter.trim();
+  const cols = resultsView.colFilters.size > 0;
+  const why = f && cols ? `&ldquo;${esc(f)}&rdquo; and the column filters`
+    : f ? `&ldquo;${esc(f)}&rdquo;` : "the column filters";
+  return `<tr class="no-match"><td colspan="${colspan}">No rows match ${why}.</td></tr>`;
 }
 
 const STATUS_COL_RE = /(^|_)(status|state)__[a-z]+$/i;
@@ -7763,9 +8268,7 @@ function paintResultsView() {
   const hasId = resultKeys.includes("id");
 
   let html = '<table class="results-table"><thead><tr><th class="row-num" scope="col">#</th>';
-  for (const k of keys) {
-    html += `<th scope="col"${k === "id" ? ' class="col-id"' : ""}${columnHeaderAttr(k)}>${esc(k)}</th>`;
-  }
+  for (const k of keys) html += resultHeaderHtml(k, ' scope="col"');
   html += "</tr></thead><tbody>";
   for (const ri of slice) {
     html += `<tr data-row="${ri}"${ri === resultsView.selected ? ' class="selected"' : ""}>`;
@@ -7793,12 +8296,11 @@ function paintResultsView() {
     }
     html += "</tr>";
   }
+  if (!slice.length) html += noMatchRowHtml(keys.length + 1);
   html += "</tbody></table>";
-  if (!slice.length) {
-    html = `<div class="result-message info">No rows match &ldquo;${esc(resultsView.filter.trim())}&rdquo;.</div>`;
-  }
   resultsContainer.innerHTML = html;
   resultsPanel.classList.add("has-table");
+  paintColFilterBar();
 
   const total = queryRows.length;
   const shown = idx.length;
@@ -7862,6 +8364,283 @@ function closeColumnsMenu() {
   columnsMenu.classList.add("hidden");
   columnsBtn.setAttribute("aria-expanded", "false");
 }
+
+// ---- Column filters -----------------------------------------------------------
+// The ▾ on each result header opens that column's values with counts, as in
+// Excel: tick the ones to keep. A filter is a Set of the values let through,
+// matched against what Vault returned, so an unsaved edit doesn't hide its row
+// mid-edit. Related-record columns get no ▾. Copy JSON and the exports still
+// take every row, as they do with the filter box. Both views.
+const CF_LIST_CAP = 300;   // values drawn at once; the search finds the rest
+const CF_CARET =
+  '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+const CF_X =
+  '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" ' +
+  'stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+const CF_SEARCH =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
+let colFilterUi = null;    // { key, q, list } while a column's menu is open
+
+const cfValue = (ri, key) => shownValue(key, queryRows[ri]?.[key]);
+const cfLabel = (v) => (v === "" ? "(blank)" : v);
+
+function passesColFilters(ri, skipKey = null) {
+  for (const [k, allowed] of resultsView.colFilters) {
+    if (k !== skipKey && !allowed.has(cfValue(ri, k))) return false;
+  }
+  return true;
+}
+
+// One header cell, in either view: the name, then the ▾.
+function resultHeaderHtml(k, attrs = "") {
+  const on = resultsView.colFilters.has(k);
+  const cls = [k === "id" ? "col-id" : "", on ? "cf-on" : ""].filter(Boolean).join(" ");
+  let btn = "";
+  if (!resultMeta?.subKeys?.has(k)) {
+    const open = colFilterUi?.key === k;
+    const tip = on ? `Filtered: change the filter on ${k}` : `Filter ${k} by value`;
+    btn = `<button type="button" class="cf-btn${on ? " on" : ""}${open ? " open" : ""}" data-col="${esc(k)}" ` +
+      `aria-haspopup="dialog" aria-expanded="${open}" aria-label="${esc(tip)}" title="${esc(tip)}">${CF_CARET}</button>`;
+  }
+  return `<th${attrs}${cls ? ` class="${cls}"` : ""}${columnHeaderAttr(k)}>${esc(k)}${btn}</th>`;
+}
+
+// key's values with their counts, over the rows every other filter leaves:
+// most common first, then A–Z.
+function colFilterValues(key) {
+  const counts = new Map();
+  for (const ri of visibleRowIndices(key)) {
+    const v = cfValue(ri, key);
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || cfLabel(a[0]).localeCompare(cfLabel(b[0])));
+}
+
+function allColumnValues(key) {
+  const all = new Set();
+  for (let ri = 0; ri < queryRows.length; ri++) all.add(cfValue(ri, key));
+  return all;
+}
+
+// A filter that lets every value through is no filter.
+function setColFilter(key, allowed) {
+  if ([...allColumnValues(key)].every((v) => allowed.has(v))) resultsView.colFilters.delete(key);
+  else resultsView.colFilters.set(key, allowed);
+  applyColFilters();
+}
+
+function applyColFilters() {
+  resultsView.page = 0;
+  if (WINDOW_MODE) paintResultsView();
+  else paintPanelPage();
+  if (resultsContainer.scrollTop) resultsContainer.scrollTop = 0;
+  if (colFilterUi) renderColFilterList();
+}
+
+// The header's ▾ when the column is shown, else its chip.
+function colFilterAnchor(key) {
+  const sel = `[data-col="${CSS.escape(key)}"]`;
+  return resultsContainer.querySelector(`.cf-btn${sel}`) || colFilterBar.querySelector(`.cf-chip-open${sel}`);
+}
+
+function toggleColFilter(key, anchor) {
+  if (colFilterUi?.key === key) closeColFilter(true);
+  else openColFilter(key, anchor);
+}
+
+function openColFilter(key, anchor) {
+  closeColumnsMenu();
+  colFilterUi = { key, q: "", list: [] };
+  colFilterMenu.setAttribute("aria-label", `Filter ${key}`);
+  colFilterMenu.innerHTML =
+    `<div class="cf-head" title="${esc(key)}">Filter ${esc(key)}</div>` +
+    `<label class="cf-search">${CF_SEARCH}<input type="search" class="cf-q" placeholder="Search values" ` +
+    `aria-label="Search the values of ${esc(key)}" spellcheck="false" autocomplete="off" /></label>` +
+    '<div class="cf-list" role="group" aria-label="Values"></div>' +
+    '<div class="cf-foot"><button type="button" class="btn btn-small btn-outline cf-clear">Clear filter</button>' +
+    '<button type="button" class="btn btn-small btn-primary cf-done">Done</button></div>';
+  renderColFilterList();
+  colFilterMenu.classList.remove("hidden");
+  placeColFilter(anchor);
+  markColFilterButtons();
+  colFilterMenu.querySelector(".cf-q").focus();
+}
+
+function closeColFilter(refocus = false) {
+  if (!colFilterUi) return;
+  const key = colFilterUi.key;
+  colFilterUi = null;
+  colFilterMenu.classList.add("hidden");
+  colFilterMenu.innerHTML = "";
+  markColFilterButtons();
+  if (refocus) colFilterAnchor(key)?.focus();
+}
+
+function markColFilterButtons() {
+  for (const b of resultsContainer.querySelectorAll(".cf-btn")) {
+    const open = b.dataset.col === colFilterUi?.key;
+    b.classList.toggle("open", open);
+    b.setAttribute("aria-expanded", String(open));
+  }
+}
+
+// Under the header cell (or chip), kept inside the window. Page coordinates,
+// so it scrolls with the panel's page rather than floating over it.
+function placeColFilter(anchor) {
+  if (!anchor?.isConnected) return;
+  const box = (anchor.closest("th") || anchor).getBoundingClientRect();
+  const w = colFilterMenu.offsetWidth;
+  const left = Math.max(8, Math.min(box.left, document.documentElement.clientWidth - w - 8));
+  colFilterMenu.style.left = `${Math.round(left + window.scrollX)}px`;
+  colFilterMenu.style.top = `${Math.round(box.bottom + 4 + window.scrollY)}px`;
+}
+
+function renderColFilterList() {
+  const ui = colFilterUi;
+  const listEl = colFilterMenu.querySelector(".cf-list");
+  if (!ui || !listEl) return;
+  const allowed = resultsView.colFilters.get(ui.key) || null;   // null: every value
+  const q = ui.q.trim().toLowerCase();
+  const vals = colFilterValues(ui.key);
+  ui.list = q ? vals.filter(([v]) => cfLabel(v).toLowerCase().includes(q)) : vals;
+  const isOn = (v) => !allowed || allowed.has(v);
+  const onCount = ui.list.reduce((n, [v]) => n + (isOn(v) ? 1 : 0), 0);
+  let h = "";
+  if (ui.list.length) {
+    h += `<label class="cf-opt cf-all"><input type="checkbox" class="cf-all-box"${onCount === ui.list.length ? " checked" : ""} />` +
+      `<span class="cf-v">${q ? "Select all matching" : "Select all"}</span></label>`;
+  }
+  ui.list.slice(0, CF_LIST_CAP).forEach(([v, n], i) => {
+    h += `<label class="cf-opt"><input type="checkbox" data-i="${i}"${isOn(v) ? " checked" : ""} />` +
+      `<span class="cf-v${v === "" ? " cf-blank" : ""}" title="${esc(cfLabel(v))}">${esc(cfLabel(v))}</span>` +
+      `<span class="cf-n">${n.toLocaleString()}</span></label>`;
+  });
+  if (ui.list.length > CF_LIST_CAP) {
+    h += `<div class="cf-note">Showing ${CF_LIST_CAP} of ${ui.list.length.toLocaleString()} values · search to find the rest</div>`;
+  }
+  if (!ui.list.length) h += `<div class="cf-note">${q ? "No values match" : "No values"}</div>`;
+  listEl.innerHTML = h;
+  const allBox = listEl.querySelector(".cf-all-box");
+  if (allBox) allBox.indeterminate = onCount > 0 && onCount < ui.list.length;
+  colFilterMenu.querySelector(".cf-clear").disabled = !allowed;
+}
+
+// What a chip says: the one value kept, "not X" when only one or two are left
+// out, else how many are kept.
+function colFilterSummary(key, allowed) {
+  if (allowed.size === 0) return "none";
+  if (allowed.size === 1) return cfLabel([...allowed][0]);
+  const out = [...allColumnValues(key)].filter((v) => !allowed.has(v));
+  if (out.length && out.length <= 2 && out.length < allowed.size) return `not ${out.map(cfLabel).join(", ")}`;
+  return `${allowed.size.toLocaleString()} values`;
+}
+
+function paintColFilterBar() {
+  const f = resultsView.colFilters;
+  const show = f.size > 0 && queryRows.length > 0 && (!WINDOW_MODE || resultsView.active);
+  colFilterBar.classList.toggle("hidden", !show);
+  if (!show) { colFilterBar.innerHTML = ""; return; }
+  let h = '<span class="cf-bar-label">Column filters</span>';
+  for (const [k, allowed] of f) {
+    const vals = [...allowed].map(cfLabel);
+    const tip = vals.length
+      ? `Kept:\n${vals.slice(0, 15).join("\n")}${vals.length > 15 ? `\n… and ${vals.length - 15} more` : ""}`
+      : "No value kept: every row is hidden";
+    h += `<span class="cf-chip"><button type="button" class="cf-chip-open" data-col="${esc(k)}" title="${esc(tip)}">` +
+      `<span>${esc(k)}:</span><b>${esc(colFilterSummary(k, allowed))}</b></button>` +
+      `<button type="button" class="cf-chip-x" data-col="${esc(k)}" aria-label="Remove the filter on ${esc(k)}" title="Remove filter">${CF_X}</button></span>`;
+  }
+  h += '<button type="button" class="cf-clear-all">Clear all</button>';
+  // The full window's footer already says how many rows are left.
+  if (!WINDOW_MODE) {
+    const n = visibleRowIndices().length;
+    h += `<span class="cf-bar-count">${n.toLocaleString()} of ${queryRows.length.toLocaleString()} rows</span>`;
+  }
+  colFilterBar.innerHTML = h;
+}
+
+colFilterMenu.addEventListener("change", (e) => {
+  const ui = colFilterUi;
+  if (!ui) return;
+  const cur = new Set(resultsView.colFilters.get(ui.key) || allColumnValues(ui.key));
+  if (e.target.classList.contains("cf-all-box")) {
+    const everyOn = ui.list.every(([v]) => cur.has(v));
+    for (const [v] of ui.list) everyOn ? cur.delete(v) : cur.add(v);
+  } else if (e.target.dataset.i != null) {
+    const item = ui.list[Number(e.target.dataset.i)];
+    if (!item) return;
+    if (e.target.checked) cur.add(item[0]);
+    else cur.delete(item[0]);
+  } else {
+    return;
+  }
+  // The list is redrawn; keep the keyboard on the box just ticked.
+  const again = e.target.classList.contains("cf-all-box") ? ".cf-all-box" : `input[data-i="${e.target.dataset.i}"]`;
+  setColFilter(ui.key, cur);
+  colFilterMenu.querySelector(again)?.focus();
+});
+
+colFilterMenu.addEventListener("input", (e) => {
+  if (!colFilterUi || !e.target.classList.contains("cf-q")) return;
+  colFilterUi.q = e.target.value;
+  renderColFilterList();
+});
+
+colFilterMenu.addEventListener("click", (e) => {
+  if (e.target.closest(".cf-clear")) {
+    if (colFilterUi) resultsView.colFilters.delete(colFilterUi.key);
+    applyColFilters();
+    closeColFilter(true);
+  } else if (e.target.closest(".cf-done")) {
+    closeColFilter(true);
+  }
+});
+
+colFilterMenu.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || (e.key === "Enter" && e.target.classList.contains("cf-q"))) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeColFilter(true);
+  }
+});
+
+colFilterBar.addEventListener("click", (e) => {
+  const x = e.target.closest(".cf-chip-x");
+  if (x) {
+    resultsView.colFilters.delete(x.dataset.col);
+    if (colFilterUi?.key === x.dataset.col) closeColFilter();
+    applyColFilters();
+    return;
+  }
+  const chip = e.target.closest(".cf-chip-open");
+  if (chip) {
+    toggleColFilter(chip.dataset.col, colFilterAnchor(chip.dataset.col) || chip);
+    return;
+  }
+  if (e.target.closest(".cf-clear-all")) {
+    resultsView.colFilters.clear();
+    closeColFilter();
+    applyColFilters();
+  }
+});
+
+// A click anywhere else closes the menu. composedPath, not contains(): ticking
+// a value redraws the list, so the clicked label may be gone by now.
+document.addEventListener("click", (e) => {
+  if (!colFilterUi) return;
+  const path = e.composedPath();
+  if (path.includes(colFilterMenu) || path.some((el) => el.classList?.contains("cf-btn") || el.classList?.contains("cf-chip-open"))) return;
+  closeColFilter();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && colFilterUi) closeColFilter(true);
+});
+// The header is sticky, so only a sideways scroll or a resize moves the ▾.
+const replaceColFilter = () => { if (colFilterUi) placeColFilter(colFilterAnchor(colFilterUi.key)); };
+resultsContainer.addEventListener("scroll", replaceColFilter);
+window.addEventListener("resize", replaceColFilter);
 
 // ---- Inspector --------------------------------------------------------------
 function rowTitle(ri) {

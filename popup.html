@@ -17,35 +17,46 @@
            and closes the data model panel rather than taking a pane. -->
       <div class="tabs">
         <div class="tab-thumb"></div>
+        <!-- Full window, names shown: group headings in the rail. -->
+        <div class="rail-group window-only">Work in</div>
+        <div class="rail-group rail-group-panels window-only">Side panels</div>
         <button class="tab active" data-tab="query" title="Query">
           <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span class="tab-label">Query</span>
+          <span class="rail-name">Query editor</span>
         </button>
         <button class="tab" data-tab="datamodel" title="Data Model">
           <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
           <span class="tab-label">Models</span>
+          <span class="rail-name">Data model</span>
         </button>
         <button class="tab" data-tab="doctypes" title="Document Types">
           <svg class="tab-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           <span class="tab-label">Document Types</span>
+          <span class="rail-name">Document types</span>
         </button>
       </div>
       <!-- Full window: the History panel, beside Models in the rail. -->
       <button id="rail-history" class="rail-btn window-only" type="button" title="Query History" aria-label="Query history" aria-pressed="false">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+        <span class="rail-name">History</span>
       </button>
 
       <!-- Full window: the Saved queries panel, History's twin in the rail. -->
       <button id="rail-saved" class="rail-btn window-only" type="button" title="Saved Queries" aria-label="Saved queries" aria-pressed="false">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>
+        <span class="rail-name">Saved queries</span>
+        <span class="rail-sub">Ctrl O</span>
       </button>
 
       <!-- Whole-vault exports. One home for the config report and, later, the
            vault snapshot. A labelled pill in the overlay bar; an icon in the
            full-window rail, where the menu opens to the right. -->
+      <div class="rail-group window-only">Vault</div>
       <div id="export-wrap" class="export-wrap">
         <button id="export-btn" class="export-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu" title="Export" aria-label="Export">
           <svg class="export-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          <span class="rail-name">Export report</span>
           <svg class="export-caret" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
         </button>
         <div id="export-menu" class="export-menu hidden" role="menu" aria-label="Export">
@@ -84,15 +95,23 @@
          target="_blank" rel="noopener noreferrer" title="Privacy Policy" aria-label="Privacy Policy">
         <!-- A page with a shield on it: a policy, about protecting your data. -->
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3"/><path d="M14 3v5h5v2"/><path d="M17 13l4 1.5v2.5c0 2.2-1.6 3.6-4 4.5-2.4-.9-4-2.3-4-4.5v-2.5z"/></svg>
+        <span class="rail-name">Privacy policy</span>
       </a>
       <button id="expand-btn" class="topbar-icon topbar-icon-accent" title="Open Full Window">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
       </button>
       <button id="collapse-btn" class="topbar-icon topbar-icon-accent hidden" title="Back to Popup" aria-label="Exit full screen">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+        <span class="rail-name">Back to page panel</span>
       </button>
       <button id="close-btn" class="topbar-icon topbar-icon-danger" title="Close">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span class="rail-name">Close window</span>
+      </button>
+      <!-- Full window: shows or hides the rail's names (remembered). -->
+      <button id="rail-toggle" class="rail-btn rail-toggle window-only" type="button" aria-expanded="true" title="Hide names" aria-label="Hide names">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="rail-name">Hide names</span>
       </button>
     </div>
 
@@ -170,22 +189,30 @@
                  vault. History's twin — a pill + popover in the overlay, a rail
                  panel in the full window. -->
             <div class="saved-wrap">
-              <button id="saved-btn" class="history-corner" type="button" title="Saved Queries"
+              <button id="saved-btn" class="history-corner" type="button" title="Saved Queries · Ctrl O" aria-label="Saved queries"
                       aria-haspopup="true" aria-expanded="false" aria-controls="saved-popover">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/></svg>
                 <span class="history-corner-label">Saved</span>
+                <span id="saved-count" class="saved-count" hidden></span>
+                <svg class="saved-caret window-only" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               <div id="saved-popover" class="history-popover hidden">
                 <div class="popover-header">
                   <span>Saved queries</span>
                   <button id="saved-add-btn" class="btn btn-small btn-text">Save current</button>
                 </div>
+                <label class="saved-search">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                  <input type="search" id="saved-search" placeholder="Search saved queries" aria-label="Search saved queries" spellcheck="false" autocomplete="off" />
+                </label>
                 <div id="saved-list"></div>
+                <div class="saved-foot window-only">Opens in this tab, or a new tab if this one has a query <span class="saved-foot-key">Ctrl O</span></div>
               </div>
             </div>
             <!-- Full-window only. Clear, Cancel and Run are moved in here by
                  popup.js, so the overlay keeps them under the editor. -->
             <div id="editor-tools" class="editor-tools window-only">
+              <span class="tools-sep" aria-hidden="true"></span>
               <button id="format-btn" class="tool-btn" type="button" title="Prettify Query">Format</button>
               <label class="limit-field" title="Row Limit on Query">Limit
                 <select id="limit-select">
@@ -217,6 +244,29 @@
             <button id="run-btn" class="btn btn-primary" title="Fetch All Pages, MAXROWS Disabled">Run Query</button>
             <button id="cancel-btn" class="btn btn-outline hidden" title="Cancel Query">Cancel</button>
             <button id="clear-btn" class="btn btn-outline">Clear</button>
+            <!-- Save the editor's query: names it the first time, then updates
+                 it. Under the editor in the overlay; on the toolbar in the full
+                 window (popup.js moves it). -->
+            <div id="save-wrap" class="save-wrap">
+              <button id="save-query-btn" class="btn btn-outline save-query-btn" type="button" data-state="empty"
+                      aria-haspopup="dialog" aria-expanded="false" aria-controls="save-name-pop" title="Save this query · Ctrl S">
+                <svg class="save-star" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>
+                <span id="save-query-label" class="save-query-label">Save</span>
+                <span id="save-query-dot" class="save-query-dot" hidden></span>
+                <span class="save-query-key">Ctrl S</span>
+              </button>
+              <div id="save-name-pop" class="save-name-pop hidden" role="dialog" aria-label="Name the saved query">
+                <label for="save-name-input" class="save-name-label">Save query as</label>
+                <input id="save-name-input" class="save-name-input" type="text" maxlength="60" autocomplete="off" spellcheck="false" />
+                <div class="save-name-foot">
+                  <span class="save-name-hint">Enter to save · works in every vault</span>
+                  <span class="save-name-btns">
+                    <button id="save-name-cancel" class="btn btn-small btn-outline" type="button">Cancel</button>
+                    <button id="save-name-ok" class="btn btn-small btn-primary" type="button">Save</button>
+                  </span>
+                </div>
+              </div>
+            </div>
             <span id="query-time" class="query-meta"></span>
           </div>
         </div>
@@ -251,6 +301,8 @@
               <button id="export-xlsx-btn" class="btn btn-small btn-outline">Export Excel</button>
             </div>
           </div>
+          <!-- Active column filters (the ▾ on each header), one chip each. -->
+          <div id="colfilter-bar" class="colfilter-bar hidden"></div>
           <div id="results-container"></div>
           <div id="save-bar" class="save-bar hidden">
             <span id="save-bar-count">0 changes</span>
@@ -412,6 +464,10 @@
       <div class="status-spacer"></div>
     </footer>
   </div>
+
+  <!-- A column's values to tick, opened from the ▾ in its header. Lives at the
+       top level so the scrolling results table can't clip it. -->
+  <div id="colfilter-menu" class="colfilter-menu hidden" role="dialog" aria-label="Filter values"></div>
 
   <script src="popup.js"></script>
 </body>
