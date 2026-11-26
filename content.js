@@ -37,8 +37,8 @@
 
     const iframe = document.createElement("iframe");
     iframe.id = IFRAME_ID;
-    // Copy JSON and the value chips write to the clipboard, which a frame from
-    // another origin may only do when the page embedding it allows it.
+    // The value chips write to the clipboard, which a frame from another
+    // origin may only do when the page embedding it allows it.
     iframe.allow = "clipboard-write";
     iframe.src = chrome.runtime.getURL("popup.html");
     Object.assign(iframe.style, {

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Dweller",
   "version": "1.0.0",
-  "description": "Query, explore and edit your Veeva Vault records with VQL. Not affiliated with Veeva Systems Inc.",
+  "description": "The Quickest Way to Explore Your Veeva Vault. Not affiliated with Veeva Systems Inc.",
   "permissions": [
     "cookies",
     "storage",

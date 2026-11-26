@@ -3574,6 +3574,9 @@ body.mode-window .save-bar {
 
 body.mode-window .save-bar .btn { height: auto; padding: 5px 12px; font-size: 13px; }
 body.mode-window .results-panel > .save-error { margin: 0 12px 12px; }
+/* Why Export Excel made no file: above the table, below the filter chips. */
+.results-panel > .export-warning { margin-bottom: 8px; padding: 10px 12px; }
+body.mode-window .results-panel > .export-warning { margin: 8px 12px; }
 
 .results-footer {
   display: flex;

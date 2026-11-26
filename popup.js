@@ -24,8 +24,6 @@ const resultsCount = $("#results-count");
 const resultsContainer = $("#results-container");
 const colFilterBar = $("#colfilter-bar");
 const colFilterMenu = $("#colfilter-menu");
-const copyBtn = $("#copy-btn");
-const exportCsvBtn = $("#export-csv-btn");
 const historyBtn = $("#history-btn");
 const historyPopover = $("#history-popover");
 const historyList = $("#history-list");
@@ -653,6 +651,7 @@ clearBtn.addEventListener("click", () => {
   hideAc();
   resultsContainer.innerHTML = "";
   resultsContainer.style.maxHeight = "";
+  clearExportWarning();
   setResultsShown(false);
   queryTime.textContent = "";
   lastResultData = null;
@@ -1166,6 +1165,7 @@ async function runQuery(isHeal = false) {
   cancelBtn.classList.remove("hidden");
   queryTime.textContent = "";
   resultsContainer.innerHTML = "";
+  clearExportWarning();
   setResultsShown(false);
   lastResultData = null;
   resetResultsView();
@@ -1437,9 +1437,9 @@ async function runQuery(isHeal = false) {
 
   resetButton();
 
-  // Combined response so Copy/CSV/Excel operate on the full set. The
-  // per-record properties were for this view's editing; the first page's
-  // share of them alone would read as the whole set's.
+  // Every page's rows in one response, for the table and Export Excel. The
+  // per-record properties were for this view's editing and cover only the
+  // first page, so they're left out.
   lastResultData = {
     ...firstData,
     data: finalRows,
@@ -1478,8 +1478,8 @@ async function runQuery(isHeal = false) {
     }
     setResultsShown(true);
     // Large result sets: skip the in-popup table render (it would freeze the UI)
-    // and stream straight to an xlsx download. Copy/CSV/Excel buttons remain
-    // available so the user can re-export from lastResultData if needed.
+    // and stream straight to an xlsx download. Export Excel shows it's busy
+    // until then (a click can't start a second copy), and stays for a re-export.
     const autoExport = pagesNeeded > AUTO_EXPORT_PAGE_THRESHOLD || completed > AUTO_EXPORT_PAGE_THRESHOLD;
     if (autoExport) {
       const big = `Large result set (${finalRows.length} records, ${completed} pages)`;
@@ -1491,9 +1491,11 @@ async function runQuery(isHeal = false) {
         if (lastResultData === forData) resultsContainer.innerHTML = html;
         for (const snap of tabResults.values()) if (snap.data === forData && !snap.table) snap.message = html;
       };
-      downloadXlsx(finalRows).then(
-        () => settle(`<div class="result-message info">${big} &mdash; auto-downloaded as Excel. Table render skipped to keep the popup responsive.</div>`),
-        (err) => settle(`<div class="result-message error" role="alert">${big} &mdash; the Excel file couldn&rsquo;t be built: ${esc(err?.message || String(err))}</div>`),
+      withExportBusy(exportXlsxBtn, () => downloadXlsx(finalRows)).then(
+        (ran) => settle(ran
+          ? `<div class="result-message info">${big} &mdash; auto-downloaded as Excel. Table render skipped to keep the popup responsive.</div>`
+          : `<div class="result-message info">${big}. Another Excel export was still running, so this one didn&rsquo;t start: click Export Excel to download it.</div>`),
+        (err) => settle(`<div class="result-message error" role="alert">${big}. ${esc(xlsxFailureText(err))}</div>`),
       );
     } else {
       renderTable(finalRows);
@@ -1601,7 +1603,7 @@ function rewriteForValueMode(query) {
 // Veeva's examples always alias a wrapped field, so the key an unaliased one
 // comes back under isn't documented; the expectation is the field's own name.
 // If it arrives as anything else ("TONAME(status__v)"), file it back under the
-// name, so the table, exports and editing see the column the query asked for.
+// name, so the table, the export and editing see the column the query asked for.
 function normalizeWrappedKeys(rows, fields) {
   if (!rows.length || !fields.length) return rows;
   const keys = Object.keys(rows[0]);
@@ -1676,45 +1678,14 @@ function showError(msg) {
   resultsContainer.innerHTML = `<div class="result-message error" role="alert">${esc(msg)}</div>`;
 }
 
-// ===================== COPY / EXPORT =====================
-copyBtn.addEventListener("click", async () => {
-  if (!lastResultData) return;
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(lastResultData, null, 2));
-    copyBtn.textContent = "Copied!";
-  } catch {
-    copyBtn.textContent = "Copy failed";
-  }
-  clearTimeout(copyBtn.resetTimer);
-  copyBtn.resetTimer = setTimeout(() => (copyBtn.textContent = "Copy JSON"), 1500);
-});
-
-// Shift+click exports reference fields as Vault's IDs (for a re-import);
-// a plain click writes their names.
-exportCsvBtn.addEventListener("click", (e) => {
-  if (!lastResultData?.data?.length) return;
-  const raw = e.shiftKey;
-  withExportBusy(exportCsvBtn, async () => {
-    let rows = lastResultData.data;
-    if (!raw) {
-      try {
-        rows = await namedExportRows(rows);
-      } catch (err) { /* names unavailable: the IDs go out */ }
-    }
-    const keys = resultColumns(rows);
-    let csv = keys.map(csvEsc).join(",") + "\n";
-    for (const row of rows) csv += keys.map((k) => csvEsc(exportText(row[k]))).join(",") + "\n";
-    downloadBlob(new Blob([csv], { type: "text/csv" }), `vql_results_${Date.now()}.csv`);
-  }, raw ? "Exporting…" : undefined);
-});
-
-// ---- Names, not IDs, for object references in the exports ----------------------
+// ===================== EXPORT =====================
+// ---- Names, not IDs, for object references in the export -----------------------
 // Vault answers an object reference field (product__v, a user field) with
-// record IDs, which mean nothing in a report. Before Export CSV or Excel builds
-// its file, each such column's IDs are looked up on the object the field points
+// record IDs, which mean nothing in a report. Before Export Excel builds its
+// file, each such column's IDs are looked up on the object the field points
 // at and written as the records' names; a multi-value field gets its names
 // comma-separated. An ID whose name can't be read (no access, deleted) stays.
-// The table and Copy JSON keep the IDs. Field targets come from Vault's
+// The query result itself keeps the IDs. Field targets come from Vault's
 // metadata for the queried object, once per session; names are kept too.
 const REF_NAME_FIELD = { group__sys: "label__v" };   // else name__v
 const REF_ID_RE = /^[A-Za-z0-9_-]+$/;
@@ -1876,10 +1847,10 @@ async function namedExportRows(rows) {
 }
 
 // The table shows names too, once they're in: after a run, the same lookup
-// (and cache) as the exports. Until then, and for an ID without a readable
+// (and cache) as the export. Until then, and for an ID without a readable
 // name, the ID shows. Kept on the result's meta, so a tab comes back named.
 // A result with more than REF_TABLE_CAP distinct IDs of one object keeps those
-// IDs on screen (its exports still name them all).
+// IDs on screen (Export Excel still names them all).
 const REF_TABLE_CAP = 2000;
 // A background lookup the burst budget cut short tries again after the same
 // back-off the other background work uses (force: past the "named" mark).
@@ -1951,18 +1922,37 @@ function nameRefCellsInPlace(refCols) {
 }
 
 // The button says it's busy while names are looked up; a failed lookup still
-// exports (with IDs), and the button always comes back.
+// exports (with IDs), and the button always comes back. False when the button
+// was already busy and the job didn't run.
 async function withExportBusy(btn, job, busyLabel = "Getting names…") {
-  if (btn.disabled) return;
+  if (btn.disabled) return false;
   const label = btn.textContent;
   btn.disabled = true;
   btn.textContent = busyLabel;
   try {
     await job();
+    return true;
   } finally {
     btn.disabled = false;
     btn.textContent = label;
   }
+}
+
+// Why Export Excel made no file, in a banner above the table. It stays until
+// the next export, a new run, Clear or a tab switch.
+function showExportWarning(err) {
+  let box = resultsPanel.querySelector(".export-warning");
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "export-warning result-message error";
+    box.setAttribute("role", "alert");
+    resultsContainer.before(box);
+  }
+  box.textContent = xlsxFailureText(err);
+}
+
+function clearExportWarning() {
+  resultsPanel.querySelector(".export-warning")?.remove();
 }
 
 // Saves a file through a temporary link.
@@ -1978,27 +1968,33 @@ function downloadBlob(blob, name) {
 }
 
 // A CSV field for Vault itself (the object update body): quoted when it has
-// to be, and nothing else — the formula guard below is for spreadsheets.
+// to be, and nothing else.
 function csvField(val) {
   const str = String(val ?? "");
   return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 }
 
-// Excel, Sheets and LibreOffice treat a leading =, +, @, tab or CR as the
-// start of a formula, so a value stored in Vault can run on whoever opens the
-// export. The apostrophe forces the cell to text and is stripped on display.
-// A leading "-" is left alone for a plain negative number — prefixing those
-// would turn real figures into text.
-function csvEsc(val) {
-  let str = String(val);
-  const formulaRisk =
-    /^[=+@\t\r]/.test(str) || (str.startsWith("-") && !/^-\d+(\.\d+)?$/.test(str));
-  if (formulaRisk) str = `'${str}`;
-  return csvField(str);
-}
-
 // ===================== EXPORT EXCEL =====================
 const exportXlsxBtn = $("#export-xlsx-btn");
+
+// An Excel sheet holds 1,048,576 rows, the header included.
+const XLSX_MAX_DATA_ROWS = 1048575;
+
+function xlsxRowLimitError(rowCount) {
+  return Object.assign(new Error("Too many rows for one Excel sheet"), { xlsxRows: rowCount });
+}
+
+// A failed Excel export as a sentence for the user. A RangeError is the
+// browser running out of room for the file (string or buffer too long).
+function xlsxFailureText(err) {
+  if (err?.xlsxRows) {
+    return `This export needs ${err.xlsxRows.toLocaleString()} rows on one sheet, but an Excel sheet holds ${XLSX_MAX_DATA_ROWS.toLocaleString()} (plus the header). Narrow the query and export again.`;
+  }
+  if (err instanceof RangeError) {
+    return "This result is too large for one Excel file. Select fewer fields or narrow the query, then export again.";
+  }
+  return `The Excel file couldn't be built: ${err?.message || String(err)}`;
+}
 
 // Every key across the rows, in first-seen order: a lookup can be missing from
 // a row whose related record is empty.
@@ -2016,8 +2012,8 @@ function resultColumns(rows) {
   return keys;
 }
 
-// A cell as text for CSV and for Excel's main sheet. Related records from a
-// subquery go out as JSON so nothing is lost; Excel also gives them a sheet.
+// A cell as text for Excel's main sheet. Related records from a subquery go
+// out as JSON text so nothing is lost; they also get a sheet of their own.
 function exportText(val) {
   if (val === null || val === undefined) return "";
   if (isSubValue(val)) return JSON.stringify(val.data);
@@ -2160,6 +2156,9 @@ ${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${sheetRows}</sheetData>
 
 function buildXlsxBlob(rows) {
   const sheets = xlsxSheets(rows);
+  // A subquery's sheet holds every related record, so it can be the long one.
+  const tooLong = sheets.find((sh) => sh.rows.length > XLSX_MAX_DATA_ROWS);
+  if (tooLong) throw xlsxRowLimitError(tooLong.rows.length);
   const xmlAttr = (s) => xmlSafe(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -2201,8 +2200,9 @@ ${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" Co
 }
 
 // Reference IDs become names first (raw: kept as IDs); if the lookup fails,
-// the file still comes out.
+// the file still comes out. Too many rows fails before any names are fetched.
 async function downloadXlsx(rows, { raw = false } = {}) {
+  if (rows.length > XLSX_MAX_DATA_ROWS) throw xlsxRowLimitError(rows.length);
   let named = rows;
   if (!raw) {
     try {
@@ -2214,10 +2214,15 @@ async function downloadXlsx(rows, { raw = false } = {}) {
   downloadBlob(buildXlsxBlob(named), `vql_results_${Date.now()}.xlsx`);
 }
 
+// Shift+click exports reference fields as Vault's IDs (for a re-import);
+// a plain click writes their names.
 exportXlsxBtn.addEventListener("click", (e) => {
   if (!lastResultData?.data?.length) return;
   const raw = e.shiftKey;   // Shift+click: reference fields as IDs
-  withExportBusy(exportXlsxBtn, () => downloadXlsx(lastResultData.data, { raw }), raw ? "Exporting…" : undefined);
+  const forData = lastResultData;
+  clearExportWarning();
+  withExportBusy(exportXlsxBtn, () => downloadXlsx(forData.data, { raw }), raw ? "Exporting…" : undefined)
+    .catch((err) => { if (lastResultData === forData) showExportWarning(err); });
 });
 
 // Minimal ZIP builder (no compression, store only — works for xlsx)
@@ -5056,7 +5061,7 @@ function subTableHtml(v, max = 50) {
   const total = Number(v.responseDetails?.total);
   const notes = [];
   const n = rows.length.toLocaleString();
-  if (rows.length > max) notes.push(`Showing ${max} of ${n}. Copy JSON and the exports include all ${n}.`);
+  if (rows.length > max) notes.push(`Showing ${max} of ${n}. Export Excel includes all ${n}.`);
   if (Number.isFinite(total) && total > rows.length) {
     notes.push(`Vault returned ${n} of ${total.toLocaleString()}: a subquery sends one page of related records per row. Query the related object directly to get them all.`);
   }
@@ -7488,7 +7493,6 @@ const inspBody = $("#insp-body");
 const inspTitle = $("#insp-title");
 const inspFields = $("#insp-fields");
 const inspOpen = $("#insp-open");
-const inspCopy = $("#insp-copy");
 const recentList = $("#recent-list");
 const inspClose = $("#insp-close");
 const railHistory = $("#rail-history");
@@ -7626,14 +7630,6 @@ function wireWorkbench() {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeColumnsMenu();
-  });
-
-  inspCopy.addEventListener("click", async () => {
-    const row = queryRows[resultsView.selected];
-    if (!row) return;
-    await navigator.clipboard.writeText(JSON.stringify(row, null, 2));
-    inspCopy.textContent = "Copied";
-    setTimeout(() => (inspCopy.textContent = "Copy JSON"), 1200);
   });
 
   recentList.addEventListener("click", (e) => {
@@ -8335,6 +8331,7 @@ function restoreResults(s) {
   closeColumnsMenu();
   closeColFilter();
   resultsPanel.querySelector(".save-error")?.remove();
+  clearExportWarning();
   if (!s) {
     queryRows = [];
     resultKeys = [];
@@ -8414,7 +8411,7 @@ function displayValue(v) {
 
 // A multi-value field (Vault sends a list, e.g. product__v) as its values,
 // comma-separated as Vault shows them, not as ["…"] JSON. Null for anything
-// that isn't a list of plain values. The table and the exports share it.
+// that isn't a list of plain values. The table and the export share it.
 function plainListText(v) {
   if (!Array.isArray(v) || !v.every((x) => x === null || typeof x !== "object")) return null;
   return v.filter((x) => x !== null && x !== "").join(", ");
@@ -8575,7 +8572,7 @@ function formatMs(ms) {
 }
 
 // ---- Columns menu -----------------------------------------------------------
-// Hides columns from the table only; Copy and the exports keep every column.
+// Hides columns from the table only; Export Excel keeps every column.
 function paintColumnsButton() {
   const n = resultsView.hidden.size;
   columnsBtn.textContent = n ? `Columns · ${n} hidden` : "Columns";
@@ -8604,8 +8601,8 @@ function closeColumnsMenu() {
 // The ▾ on each result header opens that column's values with counts, as in
 // Excel: tick the ones to keep. A filter is a Set of the values let through,
 // matched against what Vault returned, so an unsaved edit doesn't hide its row
-// mid-edit. Related-record columns get no ▾. Copy JSON and the exports still
-// take every row, as they do with the filter box. Both views.
+// mid-edit. Related-record columns get no ▾. Export Excel still takes every
+// row, as it does with the filter box. Both views.
 const CF_LIST_CAP = 300;   // values drawn at once; the search finds the rest
 const CF_CARET =
   '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" ' +
@@ -8916,7 +8913,8 @@ function renderInspector() {
   inspFields.innerHTML = html;
 
   const url = recordUrl(row);
-  inspOpen.classList.toggle("hidden", !url);
+  // Open in Vault is the row's only action: no URL (no id selected), no row.
+  inspOpen.parentElement.classList.toggle("hidden", !url);
   if (url) inspOpen.href = url;
   else inspOpen.removeAttribute("href");
 }
