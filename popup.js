@@ -93,7 +93,7 @@ if (IS_MAC) {
 // shortcut; runQuery swaps in progress text and puts this back when it's done.
 const RUN_LABEL = WINDOW_MODE
   ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>' +
-    `Run<span class="run-word"> query</span><span class="run-key">${RUN_KEY_LABEL}</span>`
+    `Run<span class="run-word"> Query</span><span class="run-key">${RUN_KEY_LABEL}</span>`
   : "Run Query";
 
 let lastResultData = null;
