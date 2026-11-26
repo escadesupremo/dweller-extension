@@ -381,21 +381,21 @@
         <!-- Full window: closes the panel (the rail's Data Model, or Ctrl+B, opens it).
              This one shows before a vault is connected; once the model is up, the
              one at the end of the header's sync line takes over. -->
-        <button id="dm-collapse" class="dm-collapse window-only" type="button" title="Collapse Panel · Ctrl B" aria-label="Collapse the Data model panel">
+        <button id="dm-collapse" class="dm-collapse window-only" type="button" title="Collapse Panel · Ctrl B" aria-label="Collapse the Data Model panel">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></svg>
         </button>
         <div id="dm-empty-state" class="dm-empty">Connect to a Vault to see its data model.</div>
 
         <div id="dm-panel" class="dm-panel hidden">
           <div class="dm-head">
-            <span class="dm-head-title">Data model</span>
+            <span class="dm-head-title">Data Model</span>
             <span id="dm-counts" class="dm-counts"></span>
             <!-- How old the model is; it loads and refreshes by itself, ↻ forces
                  it. The ↻ reloads your field access in the background too. -->
             <span class="sync-line">
               <span id="dm-sync" class="sync-text"></span>
               <button id="dm-refresh" class="sync-refresh" type="button" title="Reload Data Model" aria-label="Refresh the data model">&#8635;</button>
-              <button class="dm-collapse dm-collapse-inline window-only" type="button" title="Collapse Panel · Ctrl B" aria-label="Collapse the Data model panel">
+              <button class="dm-collapse dm-collapse-inline window-only" type="button" title="Collapse Panel · Ctrl B" aria-label="Collapse the Data Model panel">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></svg>
               </button>
             </span>
