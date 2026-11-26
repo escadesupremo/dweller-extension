@@ -71,6 +71,23 @@ const WINDOW_MODE = PAGE_PARAMS.get("mode") === "window";
 
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 const RUN_KEY_LABEL = IS_MAC ? "⌘↵" : "Ctrl ↵";
+// The modifier the B/O/S shortcuts use and show: ⌘ on a Mac (where Ctrl+B and
+// Ctrl+O are text-editing keys), Ctrl elsewhere.
+const KEY_MOD = IS_MAC ? "⌘" : "Ctrl ";
+
+// A press of that modifier and the letter: not a held-down repeat, and by key
+// position too, so it works on Cyrillic or Greek layouts.
+function isShortcut(e, letter) {
+  if (e.repeat || e.altKey || e.shiftKey) return false;
+  if (IS_MAC ? !e.metaKey || e.ctrlKey : !e.ctrlKey || e.metaKey) return false;
+  return e.key.toLowerCase() === letter || e.code === `Key${letter.toUpperCase()}`;
+}
+
+// The shortcut hints and tooltips in the page say ⌘ on a Mac.
+if (IS_MAC) {
+  for (const el of document.querySelectorAll(".rail-sub, .save-query-key, .saved-foot-key")) el.textContent = el.textContent.replace("Ctrl ", KEY_MOD);
+  for (const el of document.querySelectorAll('[title*="Ctrl "]')) el.title = el.title.replace("Ctrl ", KEY_MOD);
+}
 
 // The run button's resting face. The workbench gives it the play glyph and its
 // shortcut; runQuery swaps in progress text and puts this back when it's done.
@@ -2413,7 +2430,7 @@ function savedRowHtml(s, curId = currentSaved()?.id) {
 }
 
 function renderSaved() {
-  const empty = '<div class="saved-empty">No saved queries yet. Write one, then Save (Ctrl S).</div>';
+  const empty = `<div class="saved-empty">No saved queries yet. Write one, then Save (${KEY_MOD}S).</div>`;
   const curId = currentSaved()?.id;
   const row = (s) => savedRowHtml(s, curId);
   const html = savedQueries.length ? savedQueries.map(row).join("") : empty;
@@ -2583,8 +2600,8 @@ function paintSaveBtn() {
   saveQueryDot.hidden = status !== "changed";
   saveQueryBtn.disabled = status === "empty";
   saveQueryBtn.title = status === "saved" ? `Saved as “${s.name}”`
-    : status === "changed" ? `Save changes to “${s.name}” · Ctrl S`
-    : "Save this query · Ctrl S";
+    : status === "changed" ? `Save changes to “${s.name}” · ${KEY_MOD}S`
+    : `Save this query · ${KEY_MOD}S`;
   // Mark the open one in both lists without redrawing them (a rename in
   // progress keeps its focus).
   for (const row of document.querySelectorAll(".saved-row[data-id]")) row.classList.toggle("cur", row.dataset.id === s?.id);
@@ -2662,12 +2679,23 @@ document.addEventListener("click", (e) => {
   if (!e.composedPath().includes($("#save-wrap"))) closeSaveName();
 });
 
+// Ctrl+B shows or hides the Data model panel (full window only: in the
+// overlay the data model is a tab, not a panel).
+document.addEventListener("keydown", (e) => {
+  if (!WINDOW_MODE || !isShortcut(e, "b") || vqlPanel.classList.contains("hidden")) return;
+  e.preventDefault();
+  // Closing it from inside (its search, its tree) hands focus to the rail's
+  // Data Model, as the « does, rather than to nothing.
+  const inPanel = $("#tab-datamodel").contains(document.activeElement);
+  toggleExplorer("model");
+  if (explorerPanel !== "model" && inPanel) $('.tab[data-tab="datamodel"]').focus();
+});
+
 // Ctrl+S saves, Ctrl+O opens the saved list: both views, when the query editor
 // is up (not the connect screen).
 document.addEventListener("keydown", (e) => {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
-  const k = e.key.toLowerCase();
-  if (k !== "s" && k !== "o") return;
+  const k = isShortcut(e, "s") ? "s" : isShortcut(e, "o") ? "o" : null;
+  if (!k) return;
   if (vqlPanel.classList.contains("hidden")) return;
   e.preventDefault();
   activatePane("query");
@@ -7657,6 +7685,15 @@ function setExplorer(panel, save = true) {
   railSaved.setAttribute("aria-pressed", String(panel === "saved"));
   if (save) chrome.storage.local.set({ explorerPanel: panel || "none" });
   if (panel === "model") syncDmToQuery();
+}
+
+// The « in the Data model panel's corner closes it; focus goes to the rail's
+// Data Model, which opens it again.
+for (const btn of document.querySelectorAll(".dm-collapse")) {
+  btn.addEventListener("click", () => {
+    setExplorer(null);
+    $('.tab[data-tab="datamodel"]').focus();
+  });
 }
 
 // A second click on the open panel's button closes it.

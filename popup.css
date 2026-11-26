@@ -2735,6 +2735,7 @@ body.mode-window[data-explorer="saved"] .explorer-saved {
 /* ---- Data model sidebar ---- */
 /* Both panes are visible at once, so .active no longer gates display. */
 body.mode-window #tab-datamodel {
+  position: relative;
   display: flex;
   flex-direction: column;
   order: -1;
@@ -4326,7 +4327,8 @@ body.mode-window .editor-tools .history-popover .btn-text:hover { background: va
 .rail-sub,
 .rail-group { display: none; }
 
-body.mode-window.rail-open .shell { grid-template-columns: 200px minmax(0, 1fr); }
+/* 210px: "Saved Queries" and its Ctrl O fit on one line. */
+body.mode-window.rail-open .shell { grid-template-columns: 210px minmax(0, 1fr); }
 
 body.mode-window.rail-open .topbar {
   align-items: stretch;
@@ -4352,7 +4354,7 @@ body.mode-window.rail-open :is(.tab, .rail-btn, .topbar-icon, .export-btn) {
   height: 36px;
   min-height: 36px;
   justify-content: flex-start;
-  gap: 11px;
+  gap: 10px;
   padding: 0 10px;
   border-radius: 8px;
   font-family: var(--font);
@@ -4375,7 +4377,7 @@ body.mode-window.rail-open .rail-sub {
   font-weight: 400;
   color: var(--text-faint);
 }
-body.mode-window.rail-open .rail-btn.on .rail-sub { color: var(--accent-hover); }
+body.mode-window.rail-open :is(.tab.on, .rail-btn.on) .rail-sub { color: var(--accent-hover); }
 
 /* Headings take the place of the rule above Data model. */
 body.mode-window.rail-open .rail-group {
@@ -4394,7 +4396,7 @@ body.mode-window.rail-open .tab[data-tab="datamodel"]::before { display: none; }
 
 /* The wider rail takes room from the main column: the row drawer starts
    floating over the results, and the explorer narrows, that much sooner. */
-@media (max-width: 1410px) {
+@media (max-width: 1430px) {
   body.mode-window.rail-open #vql-panel { position: relative; }
   body.mode-window.rail-open .inspector {
     position: absolute;
@@ -4405,8 +4407,34 @@ body.mode-window.rail-open .tab[data-tab="datamodel"]::before { display: none; }
     box-shadow: -10px 0 30px rgba(22,21,15,.16);
   }
 }
-@media (max-width: 1144px) {
+@media (max-width: 1154px) {
   body.mode-window.rail-open #tab-datamodel,
   body.mode-window.rail-open[data-explorer="history"] .explorer-history,
   body.mode-window.rail-open[data-explorer="saved"] .explorer-saved { width: 240px; }
 }
+
+/* ---- Data model panel: the « that closes it (full window) ---- */
+/* In the corner before a vault is connected; once the model is up, at the end
+   of the header's "checked … ↻" line, which follows the header however its
+   rows wrap (the title row has no room for it beside the counts). */
+.dm-collapse {
+  position: absolute;
+  z-index: 2;
+  top: 11px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-hint);
+  cursor: pointer;
+}
+.dm-collapse:hover { background: var(--hover); border-color: var(--border); color: var(--ink); }
+.dm-collapse:focus-visible { outline: 2px solid var(--accent-glow); outline-offset: 1px; }
+.dm-collapse.dm-collapse-inline { position: static; width: 24px; height: 24px; margin: -2px -6px -2px auto; }
+#tab-datamodel:has(#dm-panel:not(.hidden)) > #dm-collapse { display: none; }
+body.mode-window #dm-empty-state { padding-right: 42px; }
